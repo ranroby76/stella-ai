@@ -175,6 +175,7 @@ MainComponent::MainComponent (Settings& s)
     schematic.onAskAi = [this] (const juce::String& id, const juce::String& type, const juce::String& instruction)
     {
         ai.send ("In the block \"" + id + "\" (" + type + ", modules/" + type + ".cpp): " + instruction);
+        workspace.showTab (Workspace::aiTab);   // to see Stella AI answer
     };
     schematic.onPositionsChanged = [this]
     {
@@ -198,19 +199,26 @@ MainComponent::MainComponent (Settings& s)
     chat.onSignIn = [this] (const juce::String& email) { signIn (false, email); };
     chat.onSignOut = [this] { signOut(); };
 
-    // AI chat | divider | workspace
-    columns.setItemLayout (0, ChatPanel::minimumWidth, 560, 340);
-    columns.setItemLayout (1, 7, 7, 7);
-    columns.setItemLayout (2, 420, -1.0, -0.75);
+    // The four tabs, picked in the top bar: Build with AI (the chat), Edit UI, Schematic,
+    // Knob Studio. The workspace shows one at a time; the top bar follows it.
+    workspace.setAiPage (chat);
+    topBar.onTabChosen = [this] (int index) { workspace.showTab ((Workspace::TabIndex) index); };
+    workspace.onTabChanged = [this] (int index)
+    {
+        topBar.setCurrentTab (index);
+
+        if (index == Workspace::aiTab)
+            chat.focusInput();
+    };
 
     addAndMakeVisible (topBar);
-    addAndMakeVisible (chat);
-    addAndMakeVisible (divider);
     addAndMakeVisible (workspace);
     addAndMakeVisible (keyboardStrip);
 
+    workspace.showTab (Workspace::aiTab);
+
     // The studio starts with no project open: the user opens one (recent projects are in the
-    // project menu) or asks Stella AI for a plugin.
+    // File menu) or asks Stella AI for a plugin.
     projectChanged();
     updateDeviceSummary();
     connectionChanged();
@@ -248,9 +256,7 @@ void MainComponent::resized()
 
     topBar.setBounds (area.removeFromTop (TopBar::height));
     keyboardStrip.setBounds (area.removeFromBottom (KeyboardStrip::height));
-
-    juce::Component* parts[] = { &chat, &divider, &workspace };
-    columns.layOutComponents (parts, 3, area.getX(), area.getY(), area.getWidth(), area.getHeight(), false, true);
+    workspace.setBounds (area);
 }
 
 void MainComponent::parentHierarchyChanged()
@@ -1101,7 +1107,7 @@ void MainComponent::updateDeviceSummary()
 
 void MainComponent::setPlayMode (bool shouldPlay)
 {
-    // The Plugin tab's Build and Play tabs.
+    // The Edit UI tab's Edit and Play tabs.
     playMode = shouldPlay;
     workspace.setPlayMode (playMode);
 }

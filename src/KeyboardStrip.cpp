@@ -101,13 +101,14 @@ KeyboardStrip::KeyboardStrip (AudioEngine& e)
 
     testToneButton.setClickingTogglesState (true);
     testToneButton.setToggleState (engine.isTestToneEnabled(), juce::dontSendNotification);
-    testToneButton.setTooltip ("A simple sine sound, to test the keyboard and audio device until a plugin plays");
+    testToneButton.setTooltip ("A simple sine sound for the notes you play, to test the audio device until a plugin plays");
     testToneButton.onClick = [this] { engine.setTestToneEnabled (testToneButton.getToggleState()); };
 
     panicButton.setTooltip ("Stop every sounding note");
     panicButton.onClick = [this] { engine.allNotesOff(); };
 
-    addAndMakeVisible (keyboard);
+    addChildComponent (keyboard);
+    keyboard.setVisible (keyboardShown);
     addAndMakeVisible (testToneButton);
     addAndMakeVisible (panicButton);
     addAndMakeVisible (meter);
@@ -198,6 +199,9 @@ void KeyboardStrip::resized()
     right.removeFromTop (38);   // the audio load, painted
     deviceButton.setBounds (right);
     area.removeFromRight (12);
+
+    if (! keyboardShown)
+        return;
 
     keyboard.setBounds (area);
 

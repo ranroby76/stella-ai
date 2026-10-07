@@ -12,11 +12,11 @@
 
 //==============================================================================
 /**
-    The Stella AI panel.
+    The Build with AI tab: the conversation with Stella AI, in one centred column.
 
-    Header: the title on the left and the connection light with the credits in the top
-    right corner; under them the account box, and two equal yellow pill buttons: Sign in /
-    Sign out, and Buy credits (only once signed in).
+    Header: the title on the left and the connection light with the credits on the right;
+    under them the account box, with two yellow pill buttons beside it: Sign in / Sign out,
+    and Buy credits (only once signed in).
 
     Signed out, the account box takes an email (passed to the site's sign-in). When the
     mouse moves into it, it suggests the email last signed in with; a click fills it in.
@@ -46,6 +46,9 @@ public:
     ChatPanel();
 
     void setConversation (const std::vector<StellaAi::Entry>& entries, bool busy);
+
+    /** Puts the cursor in the request box (when the tab is shown). */
+    void focusInput();
     void setAccount (const Account& newAccount);
 
     /** The request, and the files attached to it (images, PDFs, text and code). */
@@ -71,7 +74,6 @@ public:
     void mouseExit (const juce::MouseEvent&) override;
     void mouseDown (const juce::MouseEvent&) override;
 
-    static constexpr int minimumWidth = 280;
 
 private:
     //==============================================================================

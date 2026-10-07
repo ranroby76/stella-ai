@@ -5,23 +5,25 @@
 
 namespace
 {
-    constexpr int headerHeight     = 124;
+    constexpr int columnWidth      = 820;  // the chat sits in one centred column
+    constexpr int headerHeight     = 92;
     constexpr int accountLabelGap  = 58;   // room for the word "Account"
-    constexpr int warningHeight    = 120;
-    constexpr int inputHeight      = 112;
+    constexpr int pillWidth        = 150;
+    constexpr int warningHeight    = 110;
+    constexpr int inputHeight      = 176;
 
     const juce::Colour pillYellow { 0xffffcc00 };
 
     juce::String welcomeText()
     {
         return juce::String::fromUTF8 (
-            "Describe the plugin you want and Stella AI builds it here.\n\n"
+            "Describe the plugin you want and Stella AI builds it, playing live while you shape it.\n\n"
             "For example:\n"
             "  \xe2\x80\xa2 a warm tape delay with wow and flutter\n"
             "  \xe2\x80\xa2 a three-oscillator bass synth with a ladder filter\n"
             "  \xe2\x80\xa2 a MIDI arpeggiator that follows the chord\n\n"
-            "It plays live while you shape it. In the Build tab you reshape its GUI; in the "
-            "Schematic, click any block and tell Stella AI what to change in it.");
+            "Then reshape its panel in Edit UI, or click any block in the Schematic and tell "
+            "Stella AI what to change in it.");
     }
 }
 
@@ -797,23 +799,29 @@ void ChatPanel::paint (juce::Graphics& g)
     }
 }
 
+void ChatPanel::focusInput()
+{
+    if (input.isShowing())
+        input.grabKeyboardFocus();
+}
+
 void ChatPanel::resized()
 {
-    auto area = getLocalBounds();
+    // One centred column, like a chat page: the header, the conversation, the request box.
+    auto area = getLocalBounds().withSizeKeepingCentre (juce::jmin (getWidth() - 32, columnWidth), getHeight());
 
-    auto header = area.removeFromTop (headerHeight).reduced (16, 0);
-    header.removeFromTop (12);
+    auto header = area.removeFromTop (headerHeight);
+    header.removeFromTop (14);
     titleRow = header.removeFromTop (22);
-    header.removeFromTop (8);
-    accountRow = header.removeFromTop (24);
-    header.removeFromTop (10);
+    header.removeFromTop (12);
 
-    auto pills = header.removeFromTop (32);
+    // The account box, with Sign in / Sign out and Buy credits beside it.
+    auto row = header.removeFromTop (32);
+    auto pills = row.removeFromRight (buyPill.isVisible() ? pillWidth * 2 + 10 : pillWidth);
 
     if (buyPill.isVisible())
     {
-        const auto half = (pills.getWidth() - 10) / 2;
-        accountPill.setBounds (pills.removeFromLeft (half));
+        accountPill.setBounds (pills.removeFromLeft (pillWidth));
         pills.removeFromLeft (10);
         buyPill.setBounds (pills);
     }
@@ -822,13 +830,15 @@ void ChatPanel::resized()
         accountPill.setBounds (pills);
     }
 
+    row.removeFromRight (16);
+    accountRow = row.withSizeKeepingCentre (row.getWidth(), 26);
     accountBox.setBounds (accountRow.withTrimmedLeft (accountLabelGap));
 
-    area.removeFromTop (1);
+    area.removeFromTop (1);   // the line under the header
 
     if (showsWarning())
     {
-        warningArea = area.removeFromTop (warningHeight).reduced (10, 8);
+        warningArea = area.removeFromTop (warningHeight).reduced (0, 10);
         retryButton.setBounds (warningArea.reduced (10, 8).removeFromBottom (26).removeFromRight (76));
     }
     else
@@ -842,7 +852,7 @@ void ChatPanel::resized()
     {
         // Attached files as chips above the request box; the attach and send buttons inside it.
         const auto chipRow = chips.isEmpty() ? 0 : 30;
-        auto bottom = area.removeFromBottom (inputHeight + chipRow).reduced (12, 10);
+        auto bottom = area.removeFromBottom (inputHeight + chipRow).withTrimmedTop (8).withTrimmedBottom (18);
 
         if (chipRow > 0)
         {
@@ -859,12 +869,12 @@ void ChatPanel::resized()
         }
 
         inputBox = bottom;
-        auto buttons = bottom.removeFromBottom (34).reduced (6, 3);
-        attachButton.setBounds (buttons.removeFromLeft (28));
-        sendButton.setBounds (buttons.removeFromRight (28));
-        input.setBounds (bottom.reduced (4, 4));
+        auto buttons = bottom.removeFromBottom (40).reduced (8, 4);
+        attachButton.setBounds (buttons.removeFromLeft (32));
+        sendButton.setBounds (buttons.removeFromRight (32));
+        input.setBounds (bottom.reduced (8, 6));
 
-        transcript.setBounds (area.reduced (8, 6));
+        transcript.setBounds (area.withTrimmedTop (10).withTrimmedBottom (4));
 
         // A warning appearing shrinks the conversation: keep its newest lines in view.
         transcript.moveCaretToEnd();

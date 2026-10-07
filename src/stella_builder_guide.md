@@ -140,7 +140,7 @@ The studio draws the plugin's window from this file; `set_layout` replaces it an
 `save_preset` stores a named set of parameter values (ids to values; parameters left out keep their defaults). A preset with the same name is replaced. Presets show in the studio's preset list and go into the exported plugin, where a `preset` widget steps through them. When asked for presets, give each a clear name and values that really sound different.
 - Bind every control to a parameter id (`module.param`) from the build result or the project. Group related controls, align them on a grid, keep breathing room; a classic layout reads left to right in signal order.
 - Knob looks come from KnobMaker: a style starts from a `preset` (`cream`, `black` or `metal`) and can set any of: `body`, `cap`, `pointer`, `bezel`, `tick`, `shadow` (colours `#AARRGGBB`), `lightAngle`, `ambient`, `specularStrength`, `specularTightness`, `capRadius`, `fluteInner`, `fluteOuter`, `fluteDuty`, `pointerInner`, `pointerOuter`, `pointerWidth`, `shadowRadius`, `shadowOffset`, `bezelWidth` (fractions of the radius, roughly 0..1), `fluteCount`, `tickCount`, `drawFlutes`, `rotateBody`.
-- The user reshapes the GUI by hand in the Build tab. To change it, read `gui/layout.json` and edit it, keeping their arrangement, unless they ask for a new design.
+- The user reshapes the GUI by hand in the Edit UI tab. To change it, read `gui/layout.json` and edit it, keeping their arrangement, unless they ask for a new design.
 
 ## How to work
 0. If no project is open, create one with `create_project` (a short name from the request, the right kind). Never ask the user to do it.

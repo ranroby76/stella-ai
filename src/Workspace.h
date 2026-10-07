@@ -12,20 +12,22 @@
 
 //==============================================================================
 /**
-    The middle of the window, in three tabs:
+    The window below the top bar, in four tabs (picked in the top bar):
 
-        Plugin       the plugin, playing live, in two tabs of its own: Build, where its
-                     GUI is reshaped, and Play, where the GUI is locked and plays like
-                     the finished plugin
-        Schematic    its DSP blocks and wires; click a block to instruct the AI
-        Knob Studio  KnobMaker's tools, for shaping a knob or a panel
+        Build with AI  the conversation with Stella AI (the main window's chat panel)
+        Edit UI        the plugin, playing live, in two tabs of its own: Edit, where its
+                       GUI is reshaped, and Play, where the GUI is locked and plays like
+                       the finished plugin
+        Schematic      its DSP blocks and wires; click a block to instruct the AI
+        Knob Studio    KnobMaker's tools, for shaping a knob or a panel
 */
 class Workspace final : public juce::Component
 {
 public:
     enum TabIndex
     {
-        pluginTab = 0,
+        aiTab = 0,
+        pluginTab,      // Edit UI
         schematicTab,
         studioTab
     };
@@ -35,14 +37,18 @@ public:
     using ParamControl = PluginCanvas::Param;
 
     Workspace();
-    ~Workspace() override;
+
+    /** The Build with AI tab's page: the main window owns it. */
+    void setAiPage (juce::Component& page);
 
     /** name empty: no project is open. */
     void setProject (const juce::String& name, const juce::String& kindName);
 
-    /** The Plugin tab's own tabs: Build (false) or Play (true). */
+    /** The Edit UI tab's own tabs: Edit (false) or Play (true). */
     void setPlayMode (bool playMode);
+
     void showTab (TabIndex index);
+    TabIndex getCurrentTab() const noexcept       { return currentTab; }
 
     void setBuild (BuildState state, const juce::String& status);
     void setExporting (bool exporting);
@@ -70,7 +76,8 @@ public:
     std::function<void()> onAutoLayoutRequested;
     std::function<void()> onLayoutEdited;
     std::function<void (int index, float value)> onParameterChanged;
-    std::function<void (bool playMode)> onModeChanged;   // the user picked Build or Play
+    std::function<void (bool playMode)> onModeChanged;   // the user picked Edit or Play
+    std::function<void (int tabIndex)> onTabChanged;     // whichever way the tab changed
 
     std::function<void (int presetIndex)> onPresetChosen;
     std::function<void()> onSavePreset;
@@ -116,11 +123,11 @@ private:
 
         juce::TextButton newButton, openButton;
 
-        // Two tabs: Build (reshape the panel) and Play (the panel locked, its controls live).
-        juce::TextButton buildTab { "Build" }, playTab { "Play" };
+        // Two tabs: Edit (reshape the panel) and Play (the panel locked, its controls live).
+        juce::TextButton editTab { "Edit" }, playTab { "Play" };
         juce::TextButton rebuildButton { "Rebuild" }, logButton { "Log" }, exportButton { "Export" };
 
-        // The Build tab's row: add parts, or start over with an automatic panel.
+        // The Edit tab's row: add parts, or start over with an automatic panel.
         juce::TextButton addButton { "+ Add" }, autoButton { "Auto layout" };
 
         // The Play tab's row: choose, save and delete presets; compare A and B.
@@ -154,11 +161,13 @@ private:
     };
 
     //==============================================================================
-    // The views are declared before the tabs, so the tabs let go of them first.
+    void showPages();
+
     PluginView pluginView;
     SchematicView schematicView;
     KnobStudio studio;
-    juce::TabbedComponent tabs { juce::TabbedButtonBar::TabsAtTop };
+    juce::Component* aiPage = nullptr;
+    TabIndex currentTab = aiTab;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Workspace)
 };

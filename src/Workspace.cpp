@@ -18,20 +18,20 @@ Workspace::PluginView::PluginView()
     newButton.onClick = [this] { if (onNew != nullptr) onNew(); };
     openButton.onClick = [this] { if (onOpen != nullptr) onOpen(); };
 
-    // Build and Play: two tabs, one always on.
-    for (auto* tab : { &buildTab, &playTab })
+    // Edit and Play: two tabs, one always on.
+    for (auto* tab : { &editTab, &playTab })
     {
         tab->setClickingTogglesState (true);
         tab->setRadioGroupId (modeGroup);
         tab->setColour (juce::TextButton::buttonOnColourId, Theme::accent);
     }
 
-    buildTab.setTooltip ("Build: reshape the plugin's panel. Add, move, resize and delete its parts");
+    editTab.setTooltip ("Edit: reshape the plugin's panel. Add, move, resize and delete its parts");
     playTab.setTooltip ("Play: the panel is locked. Turn its knobs and play it like the finished plugin");
-    buildTab.setConnectedEdges (juce::Button::ConnectedOnRight);
+    editTab.setConnectedEdges (juce::Button::ConnectedOnRight);
     playTab.setConnectedEdges (juce::Button::ConnectedOnLeft);
-    buildTab.setToggleState (true, juce::dontSendNotification);
-    buildTab.onClick = [this] { if (buildTab.getToggleState()) chooseMode (false); };
+    editTab.setToggleState (true, juce::dontSendNotification);
+    editTab.onClick = [this] { if (editTab.getToggleState()) chooseMode (false); };
     playTab.onClick  = [this] { if (playTab.getToggleState()) chooseMode (true); };
 
     rebuildButton.setTooltip ("Compile the plugin again and play it (it keeps playing while it rebuilds)");
@@ -52,7 +52,7 @@ Workspace::PluginView::PluginView()
     addAndMakeVisible (newButton);
     addAndMakeVisible (openButton);
 
-    for (auto* c : std::initializer_list<juce::Component*> { &buildTab, &playTab, &rebuildButton, &logButton, &exportButton })
+    for (auto* c : std::initializer_list<juce::Component*> { &editTab, &playTab, &rebuildButton, &logButton, &exportButton })
         addChildComponent (c);
 
     presetBox.setTextWhenNothingSelected ("No preset");
@@ -136,7 +136,7 @@ void Workspace::PluginView::setProject (const juce::String& name, const juce::St
     newButton.setVisible (! hasProject);
     openButton.setVisible (! hasProject);
 
-    for (auto* c : std::initializer_list<juce::Component*> { &buildTab, &playTab, &rebuildButton, &logButton, &exportButton })
+    for (auto* c : std::initializer_list<juce::Component*> { &editTab, &playTab, &rebuildButton, &logButton, &exportButton })
         c->setVisible (hasProject);
 
     canvas.setVisible (hasProject);
@@ -149,9 +149,9 @@ void Workspace::PluginView::setProject (const juce::String& name, const juce::St
 void Workspace::PluginView::setPlayMode (bool shouldPlay)
 {
     playMode = shouldPlay;
-    (playMode ? playTab : buildTab).setToggleState (true, juce::dontSendNotification);
+    (playMode ? playTab : editTab).setToggleState (true, juce::dontSendNotification);
 
-    // Each tab has a row of its own: Build's tools, or Play's presets and A/B.
+    // Each tab has a row of its own: Edit's tools, or Play's presets and A/B.
     const bool hasProject = projectName.isNotEmpty();
 
     for (auto* c : std::initializer_list<juce::Component*> { &addButton, &autoButton })
@@ -219,7 +219,7 @@ void Workspace::PluginView::paint (juce::Graphics& g)
 
         g.setColour (Theme::muted);
         g.setFont (Theme::font (15.0f));
-        g.drawText ("Start a new one, or open a plugin you're working on.", area.removeFromTop (26),
+        g.drawText ("Describe it in Build with AI, or start or open one here.", area.removeFromTop (26),
                     juce::Justification::centred, false);
         return;
     }
@@ -247,7 +247,7 @@ void Workspace::PluginView::paint (juce::Graphics& g)
     g.fillRect (0, barHeight - 1, getWidth(), 1);
     g.fillRect (0, barHeight + rowHeight - 1, getWidth(), 1);
 
-    // The tab's own row: Play names its presets; Build says how editing works.
+    // The tab's own row: Play names its presets; Edit says how editing works.
     g.setColour (Theme::muted);
     g.setFont (Theme::font (13.5f));
 
@@ -265,9 +265,9 @@ void Workspace::PluginView::resized()
     newButton.setBounds (buttons.removeFromLeft (150).reduced (4, 0));
     openButton.setBounds (buttons.reduced (4, 0));
 
-    // The bar: the Build and Play tabs, the build's state, then Export, Rebuild and Log.
+    // The bar: the Edit and Play tabs, the build's state, then Export, Rebuild and Log.
     auto bar = getLocalBounds().removeFromTop (barHeight).reduced (16, 9);
-    buildTab.setBounds (bar.removeFromLeft (84));
+    editTab.setBounds (bar.removeFromLeft (84));
     playTab.setBounds (bar.removeFromLeft (84));
     bar.removeFromLeft (18);
 
@@ -281,7 +281,7 @@ void Workspace::PluginView::resized()
 
     const auto row = getLocalBounds().withTrimmedTop (barHeight).removeFromTop (rowHeight).reduced (16, 6);
 
-    // Build's row: + Add and Auto layout, then how editing works.
+    // Edit's row: + Add and Auto layout, then how editing works.
     auto tools = row;
     addButton.setBounds (tools.removeFromLeft (72));
     tools.removeFromLeft (6);
@@ -355,12 +355,12 @@ Workspace::Workspace()
 
     pluginView.canvas.onLayoutEdited = [this] { if (onLayoutEdited != nullptr) onLayoutEdited(); };
 
-    // Double-click a knob in the Build tab: its look opens in the Knob Studio.
+    // Double-click a knob in the Edit tab: its look opens in the Knob Studio.
     pluginView.canvas.onEditKnob = [this] (int widgetIndex)
     {
         studio.setLayout (pluginView.canvas.getLayout());
         studio.editKnob (widgetIndex);
-        tabs.setCurrentTabIndex (studioTab);
+        showTab (studioTab);
     };
 
     studio.onStyleChanged = [this] (const juce::String& name, const KnobStyle& style) { pluginView.canvas.setKnobStyle (name, style); };
@@ -384,27 +384,44 @@ Workspace::Workspace()
         studio.setLayout (pluginView.canvas.getLayout());
         return name;
     };
-    studio.onBack = [this] { tabs.setCurrentTabIndex (pluginTab); };
+    studio.onBack = [this] { showTab (pluginTab); };
     pluginView.canvas.onParameterChanged = [this] (int index, float value)
     {
         if (onParameterChanged != nullptr)
             onParameterChanged (index, value);
     };
 
-    tabs.setTabBarDepth (36);
-    tabs.setOutline (0);
-    tabs.setIndent (0);
-
-    tabs.addTab ("Plugin", Theme::panel, &pluginView, false);
-    tabs.addTab ("Schematic", Theme::inset, &schematicView, false);
-    tabs.addTab ("Knob Studio", Theme::panel, &studio, false);
-
-    addAndMakeVisible (tabs);
+    // The tabs are picked in the top bar; one page shows at a time.
+    addChildComponent (pluginView);
+    addChildComponent (schematicView);
+    addChildComponent (studio);
+    showPages();
 }
 
-Workspace::~Workspace()
+void Workspace::setAiPage (juce::Component& page)
 {
-    tabs.clearTabs();
+    aiPage = &page;
+    addChildComponent (page);
+    page.setBounds (getLocalBounds());
+    showPages();
+}
+
+void Workspace::showTab (TabIndex index)
+{
+    currentTab = index;
+    showPages();
+
+    if (onTabChanged != nullptr)
+        onTabChanged ((int) index);
+}
+
+void Workspace::showPages()
+{
+    juce::Component* pages[] { aiPage, &pluginView, &schematicView, &studio };
+
+    for (int i = 0; i < 4; ++i)
+        if (pages[i] != nullptr)
+            pages[i]->setVisible (i == (int) currentTab);
 }
 
 void Workspace::setProject (const juce::String& name, const juce::String& kindName)
@@ -421,7 +438,6 @@ void Workspace::setLayout (const GuiLayout& layout)
     pluginView.canvas.setLayout (layout);
     studio.setLayout (layout);
 }
-void Workspace::showTab (TabIndex index)                                  { tabs.setCurrentTabIndex ((int) index); }
 
 void Workspace::setPresets (const juce::StringArray& names, int selected)    { pluginView.setPresets (names, selected); }
 void Workspace::setAbSlot (int slot)                                         { pluginView.setAbSlot (slot); }
@@ -433,5 +449,8 @@ void Workspace::setSources (const juce::StringArray& signals, const juce::String
 
 void Workspace::resized()
 {
-    tabs.setBounds (getLocalBounds());
+    for (auto* page : { aiPage, static_cast<juce::Component*> (&pluginView), static_cast<juce::Component*> (&schematicView),
+                        static_cast<juce::Component*> (&studio) })
+        if (page != nullptr)
+            page->setBounds (getLocalBounds());
 }

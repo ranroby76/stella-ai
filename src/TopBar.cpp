@@ -17,20 +17,76 @@ namespace
         openId = 6,
         recentBaseId = 100
     };
+
+    const juce::Font tabFont()      { return Theme::font (14.5f, true); }
+    const juce::Font menuFont()     { return Theme::font (14.5f); }
+
+    int textWidth (const juce::Font& font, const juce::String& text)
+    {
+        juce::GlyphArrangement glyphs;
+        glyphs.addLineOfText (font, text, 0.0f, 0.0f);
+        return (int) std::ceil (glyphs.getBoundingBox (0, glyphs.getNumGlyphs(), true).getWidth());
+    }
+}
+
+//==============================================================================
+void TopBar::MenuTitle::paintButton (juce::Graphics& g, bool highlighted, bool down)
+{
+    if (open || highlighted || down)
+    {
+        g.setColour (open || down ? Theme::raised.brighter (0.12f) : Theme::raised);
+        g.fillRoundedRectangle (getLocalBounds().toFloat(), 4.0f);
+    }
+
+    g.setColour (Theme::text);
+    g.setFont (menuFont());
+    g.drawText (getButtonText(), getLocalBounds(), juce::Justification::centred, false);
+}
+
+void TopBar::TabButton::paintButton (juce::Graphics& g, bool highlighted, bool down)
+{
+    const auto area = getLocalBounds().toFloat();
+    const bool on = getToggleState();
+
+    if (! on && (highlighted || down))
+    {
+        g.setColour (Theme::raised.withAlpha (0.7f));
+        g.fillRoundedRectangle (area.reduced (2.0f, 8.0f), 5.0f);
+    }
+
+    g.setColour (on ? Theme::text : (highlighted ? Theme::text.withAlpha (0.85f) : Theme::muted));
+    g.setFont (Theme::font (14.5f, on));
+    g.drawText (getButtonText(), area, juce::Justification::centred, false);
+
+    // The tab that's showing carries the accent as an underline, on the bar's bottom edge.
+    if (on)
+    {
+        g.setColour (Theme::accent);
+        g.fillRect (area.withTop (area.getBottom() - 2.0f).reduced (10.0f, 0.0f));
+    }
 }
 
 //==============================================================================
 TopBar::TopBar()
 {
-    projectButton.setTooltip ("New, open, the cloud and recent projects");
-    projectButton.onClick = [this] { showProjectMenu(); };
+    fileMenu.setTooltip ("New, open, the cloud and recent projects");
+    fileMenu.onClick = [this] { showFileMenu(); };
 
     undoButton.onClick = [this] { if (onUndo != nullptr) onUndo(); };
     redoButton.onClick = [this] { if (onRedo != nullptr) onRedo(); };
     setUndoState ({}, {});
 
-    for (auto* button : { &projectButton, &undoButton, &redoButton })
+    for (auto* button : std::initializer_list<juce::Component*> { &fileMenu, &undoButton, &redoButton })
         addAndMakeVisible (button);
+
+    for (int i = 0; i < numTabs; ++i)
+    {
+        auto* tab = tabs.add (new TabButton (tabNames[i]));
+        tab->onClick = [this, i] { if (onTabChosen != nullptr) onTabChosen (i); };
+        addAndMakeVisible (tab);
+    }
+
+    setCurrentTab (0);
 
     fananLogo = juce::ImageCache::getFromMemory (StellaAssets::fanan_logo_png, StellaAssets::fanan_logo_pngSize);
 
@@ -41,52 +97,56 @@ TopBar::TopBar()
 void TopBar::setProjectName (const juce::String& name)
 {
     hasProject = name.isNotEmpty();
-    projectButton.setButtonText ((hasProject ? name : juce::String ("No project")) + juce::String::fromUTF8 ("  \xe2\x96\xbe"));
+}
+
+void TopBar::setCurrentTab (int index)
+{
+    for (int i = 0; i < tabs.size(); ++i)
+        tabs[i]->setToggleState (i == index, juce::dontSendNotification);
 }
 
 //==============================================================================
-void TopBar::showProjectMenu()
+void TopBar::showFileMenu()
 {
-    juce::PopupMenu menu;
+    // A plain Windows-style menu: text items, separators, and a submenu for recent projects.
     const auto recent = recentProjects != nullptr ? recentProjects() : juce::StringArray();
     const bool cloud = cloudAvailable != nullptr && cloudAvailable();
 
+    juce::PopupMenu menu;
     menu.addItem (newId, juce::String::fromUTF8 ("New plugin\xe2\x80\xa6"));
     menu.addItem (openId, juce::String::fromUTF8 ("Open\xe2\x80\xa6"));
+
+    juce::PopupMenu recentMenu;
+
+    for (int i = 0; i < recent.size(); ++i)
+        recentMenu.addItem (recentBaseId + i, juce::File (recent[i]).getParentDirectory().getFileName());
+
+    menu.addSubMenu ("Open recent", recentMenu, ! recent.isEmpty());
     menu.addSeparator();
 
-    if (cloudStatus != nullptr)
-    {
-        menu.addItem (recentBaseId - 2, cloudStatus(), false);
-        menu.addItem (cloudSaveId, "Save to the cloud now", cloud && hasProject);
-        menu.addItem (cloudOpenId, juce::String::fromUTF8 ("Open from the cloud\xe2\x80\xa6"), cloud);
-        menu.addSeparator();
-    }
+    // The cloud's state sits on the right of its item, where Windows shows shortcuts.
+    juce::PopupMenu::Item save ("Save to the cloud now");
+    save.itemID = cloudSaveId;
+    save.isEnabled = cloud && hasProject;
 
-    if (recent.isEmpty())
-    {
-        menu.addItem (recentBaseId - 1, "No recent projects", false);
-    }
-    else
-    {
-        menu.addSectionHeader ("Recent");
+    if (save.isEnabled && cloudStatus != nullptr)
+        save.shortcutKeyDescription = cloudStatus().fromFirstOccurrenceOf ("Cloud: ", false, false);
 
-        for (int i = 0; i < recent.size(); ++i)
-        {
-            const juce::File file (recent[i]);
-            menu.addItem (recentBaseId + i, file.getParentDirectory().getFileName());
-        }
-    }
-
+    menu.addItem (save);
+    menu.addItem (cloudOpenId, juce::String::fromUTF8 ("Open from the cloud\xe2\x80\xa6"), cloud);
     menu.addSeparator();
     menu.addItem (revealId, "Show project folder", hasProject);
     menu.addItem (closeId, "Close project", hasProject);
 
-    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&projectButton),
+    fileMenu.setOpen (true);
+
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&fileMenu).withMinimumWidth (220),
                         [safeThis = juce::Component::SafePointer<TopBar> (this), recent] (int result)
                         {
-                            if (safeThis == nullptr || result == 0)
+                            if (safeThis == nullptr)
                                 return;
+
+                            safeThis->fileMenu.setOpen (false);
 
                             if (result == newId && safeThis->onNew != nullptr)
                                 safeThis->onNew();
@@ -160,9 +220,24 @@ void TopBar::resized()
     fananArea = area.removeFromRight (logoWidth);
     area.removeFromRight (12);
 
-    projectButton.setBounds (area.removeFromLeft (260));
+    fileMenu.setBounds (area.removeFromLeft (textWidth (menuFont(), fileMenu.getButtonText()) + 22));
     area.removeFromLeft (12);
     undoButton.setBounds (area.removeFromLeft (58));
     area.removeFromLeft (4);
     redoButton.setBounds (area.removeFromLeft (58));
+
+    // The tabs: centred in the window and as tall as the bar, never over the left group.
+    int total = 0;
+
+    for (auto* tab : tabs)
+        total += textWidth (tabFont(), tab->getButtonText()) + 40;
+
+    auto x = juce::jmax (redoButton.getRight() + 24, (getWidth() - total) / 2);
+
+    for (auto* tab : tabs)
+    {
+        const auto width = textWidth (tabFont(), tab->getButtonText()) + 40;
+        tab->setBounds (x, 0, width, getHeight());
+        x += width;
+    }
 }

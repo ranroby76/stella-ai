@@ -10,8 +10,9 @@ class AudioEngine;
 
 //==============================================================================
 /**
-    The bottom strip: an on-screen keyboard (mouse or computer keys), the test tone
-    switch, the output meter and the audio load.
+    The bottom strip: the test tone and All off, the output meter, the audio load and the
+    audio device. Its on-screen keyboard (mouse or computer keys) is hidden for now: it
+    stays in the code, ready to come back elsewhere (keyboardShown).
 */
 class KeyboardStrip final : public juce::Component,
                             private juce::Timer
@@ -30,6 +31,9 @@ public:
     void resized() override;
 
     static constexpr int height = 104;
+
+    /** The on-screen keyboard is off for now (2026-10-08); it comes back somewhere else later. */
+    static constexpr bool keyboardShown = false;
 
 private:
     //==============================================================================

@@ -99,8 +99,6 @@ private:
     Workspace workspace;
     KeyboardStrip keyboardStrip { engine };
 
-    juce::StretchableLayoutManager columns;
-    juce::StretchableLayoutResizerBar divider { &columns, 1, true };
 
     std::unique_ptr<juce::DocumentWindow> audioSettingsWindow, logWindow;
     std::unique_ptr<juce::FileChooser> chooser;
