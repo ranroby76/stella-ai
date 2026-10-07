@@ -1,7 +1,7 @@
 # C:\workspace\Stella AI Studio\src\StellaToolchain.cmake
 #
 # The tools behind the live preview and Export, downloaded once and kept in the project's
-# deps folder, beside build (not inside it), so deleting or recreating the build folder
+# _deps folder, beside build (not inside it), so deleting or recreating the build folder
 # never downloads them again:
 #   Wasmtime 39.0.1 (C API): runs the plugin being built, live, in a sandbox;
 #   wasi-sdk 25: the compiler that turns a plugin's C++ into WebAssembly;
@@ -10,37 +10,48 @@
 # The compilers and headers ship with the studio, so users don't need anything installed.
 #
 # Pass -DSTELLA_DEPS_DIR=<folder> to keep them somewhere else (one copy for several
-# projects). Tools already in build/_deps from before are moved over, not downloaded again.
+# projects). Tools found where earlier versions kept them (build/_deps, or deps beside it)
+# are moved over, not downloaded again.
 #
 # Sets STELLA_WASMTIME_DIR, STELLA_WASI_SDK_DIR, STELLA_LLVM_MINGW_DIR, STELLA_CLAP_DIR and
 # STELLA_VST3_DIR, and writes StellaToolchainPaths.h into the build folder.
 
-set(STELLA_DEPS_DIR "${CMAKE_SOURCE_DIR}/deps" CACHE PATH "Where the downloaded tools are kept (outside the build folder, so they survive it)")
+set(_stella_default_deps "${CMAKE_SOURCE_DIR}/_deps")
+
+# A build folder set up with the earlier default (deps) follows the tools to _deps.
+if(STELLA_DEPS_DIR STREQUAL "${CMAKE_SOURCE_DIR}/deps")
+    set(STELLA_DEPS_DIR "${_stella_default_deps}" CACHE PATH "Where the downloaded tools are kept (outside the build folder, so they survive it)" FORCE)
+endif()
+
+set(STELLA_DEPS_DIR "${_stella_default_deps}" CACHE PATH "Where the downloaded tools are kept (outside the build folder, so they survive it)")
 file(MAKE_DIRECTORY "${STELLA_DEPS_DIR}")
 
 function(stella_fetch name url sha256 folder result_var)
     set(dir "${STELLA_DEPS_DIR}/${folder}")
     set(stamp "${STELLA_DEPS_DIR}/${name}.done")
 
-    # Downloaded before the tools moved out of the build folder: moved over, not downloaded again.
-    set(old_dir "${CMAKE_BINARY_DIR}/_deps/${folder}")
-    set(old_stamp "${CMAKE_BINARY_DIR}/_deps/${name}.done")
+    # Where earlier versions kept the tools: moved over from there, not downloaded again.
+    foreach(old_place "${CMAKE_BINARY_DIR}/_deps" "${CMAKE_SOURCE_DIR}/deps")
+        set(old_dir "${old_place}/${folder}")
+        set(old_stamp "${old_place}/${name}.done")
 
-    if((NOT EXISTS "${stamp}" OR NOT IS_DIRECTORY "${dir}") AND EXISTS "${old_stamp}" AND IS_DIRECTORY "${old_dir}")
-        message(STATUS "Stella: moving ${folder} from build/_deps to ${STELLA_DEPS_DIR}")
+        if(NOT old_place STREQUAL STELLA_DEPS_DIR AND (NOT EXISTS "${stamp}" OR NOT IS_DIRECTORY "${dir}")
+           AND EXISTS "${old_stamp}" AND IS_DIRECTORY "${old_dir}")
+            message(STATUS "Stella: moving ${folder} from ${old_place} to ${STELLA_DEPS_DIR}")
 
-        if(IS_DIRECTORY "${dir}")
-            file(REMOVE_RECURSE "${dir}")
+            if(IS_DIRECTORY "${dir}")
+                file(REMOVE_RECURSE "${dir}")
+            endif()
+
+            file(RENAME "${old_dir}" "${dir}" RESULT moved)
+
+            if(moved EQUAL 0)
+                file(RENAME "${old_stamp}" "${stamp}")
+            else()
+                message(STATUS "Stella: couldn't move it (${moved}); downloading it instead")
+            endif()
         endif()
-
-        file(RENAME "${old_dir}" "${dir}" RESULT moved)
-
-        if(moved EQUAL 0)
-            file(RENAME "${old_stamp}" "${stamp}")
-        else()
-            message(STATUS "Stella: couldn't move it (${moved}); downloading it instead")
-        endif()
-    endif()
+    endforeach()
 
     if(NOT EXISTS "${stamp}" OR NOT IS_DIRECTORY "${dir}")
         get_filename_component(archive_name "${url}" NAME)

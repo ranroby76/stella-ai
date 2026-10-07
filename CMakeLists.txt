@@ -22,7 +22,7 @@ add_subdirectory("${JUCE_DIR}" JUCE)
 # ------------------------------------------------------------------------------
 # The live preview's tools: Wasmtime (runs plugins in a sandbox) and wasi-sdk (compiles
 # them to WebAssembly), with Export's compiler and plugin headers. Downloaded once and kept
-# in the deps folder beside build, so a new or deleted build folder doesn't fetch them again.
+# in the _deps folder beside build, so a new or deleted build folder doesn't fetch them again.
 # ------------------------------------------------------------------------------
 include(src/StellaToolchain.cmake)
 
@@ -165,4 +165,4 @@ else()
 endif()
 
 # Everything the build makes stays inside the build folder; the only thing outside it is the
-# deps folder of downloaded tools. Nothing is installed or copied anywhere else.
+# _deps folder of downloaded tools. Nothing is installed or copied anywhere else.
