@@ -3,6 +3,11 @@
 #include "Workspace.h"
 #include "StellaLookAndFeel.h"
 
+namespace
+{
+    constexpr int modeGroup = 4101;
+}
+
 //==============================================================================
 Workspace::PluginView::PluginView()
 {
@@ -13,9 +18,24 @@ Workspace::PluginView::PluginView()
     newButton.onClick = [this] { if (onNew != nullptr) onNew(); };
     openButton.onClick = [this] { if (onOpen != nullptr) onOpen(); };
 
-    buildButton.setColour (juce::TextButton::buttonColourId, Theme::accent);
-    buildButton.setTooltip ("Compile the plugin and play it live (it keeps playing while it rebuilds)");
-    buildButton.onClick = [this] { if (onBuild != nullptr) onBuild(); };
+    // Build and Play: two tabs, one always on.
+    for (auto* tab : { &buildTab, &playTab })
+    {
+        tab->setClickingTogglesState (true);
+        tab->setRadioGroupId (modeGroup);
+        tab->setColour (juce::TextButton::buttonOnColourId, Theme::accent);
+    }
+
+    buildTab.setTooltip ("Build: reshape the plugin's panel. Add, move, resize and delete its parts");
+    playTab.setTooltip ("Play: the panel is locked. Turn its knobs and play it like the finished plugin");
+    buildTab.setConnectedEdges (juce::Button::ConnectedOnRight);
+    playTab.setConnectedEdges (juce::Button::ConnectedOnLeft);
+    buildTab.setToggleState (true, juce::dontSendNotification);
+    buildTab.onClick = [this] { if (buildTab.getToggleState()) chooseMode (false); };
+    playTab.onClick  = [this] { if (playTab.getToggleState()) chooseMode (true); };
+
+    rebuildButton.setTooltip ("Compile the plugin again and play it (it keeps playing while it rebuilds)");
+    rebuildButton.onClick = [this] { if (onBuild != nullptr) onBuild(); };
 
     logButton.setTooltip ("The compiler's messages from the last build");
     logButton.onClick = [this] { if (onShowLog != nullptr) onShowLog(); };
@@ -23,7 +43,7 @@ Workspace::PluginView::PluginView()
     exportButton.setTooltip ("Build the plugin as files your DAW loads (CLAP and VST3, Windows 64-bit)");
     exportButton.onClick = [this] { if (onExport != nullptr) onExport(); };
 
-    addButton.setTooltip ("Add a knob, slider, switch, selector, label or group");
+    addButton.setTooltip ("Add a knob, slider, switch, meter, label or another part");
     addButton.onClick = [this] { showAddMenu(); };
 
     autoButton.setTooltip ("Replace the GUI with a plain automatic one: a group per module, a control per parameter");
@@ -31,9 +51,9 @@ Workspace::PluginView::PluginView()
 
     addAndMakeVisible (newButton);
     addAndMakeVisible (openButton);
-    addChildComponent (buildButton);
-    addChildComponent (logButton);
-    addChildComponent (exportButton);
+
+    for (auto* c : std::initializer_list<juce::Component*> { &buildTab, &playTab, &rebuildButton, &logButton, &exportButton })
+        addChildComponent (c);
 
     presetBox.setTextWhenNothingSelected ("No preset");
     presetBox.setTextWhenNoChoicesAvailable ("No presets yet");
@@ -115,14 +135,12 @@ void Workspace::PluginView::setProject (const juce::String& name, const juce::St
 
     newButton.setVisible (! hasProject);
     openButton.setVisible (! hasProject);
-    buildButton.setVisible (hasProject);
-    logButton.setVisible (hasProject);
-    exportButton.setVisible (hasProject);
 
-    for (auto* c : std::initializer_list<juce::Component*> { &presetBox, &savePresetButton, &deletePresetButton, &aButton, &bButton, &copyButton })
+    for (auto* c : std::initializer_list<juce::Component*> { &buildTab, &playTab, &rebuildButton, &logButton, &exportButton })
         c->setVisible (hasProject);
+
     canvas.setVisible (hasProject);
-    setPlayMode (playMode);
+    setPlayMode (playMode);   // and the row that goes with the tab
 
     resized();
     repaint();
@@ -131,20 +149,37 @@ void Workspace::PluginView::setProject (const juce::String& name, const juce::St
 void Workspace::PluginView::setPlayMode (bool shouldPlay)
 {
     playMode = shouldPlay;
+    (playMode ? playTab : buildTab).setToggleState (true, juce::dontSendNotification);
 
-    const bool designTools = ! playMode && projectName.isNotEmpty();
-    addButton.setVisible (designTools);
-    autoButton.setVisible (designTools);
+    // Each tab has a row of its own: Build's tools, or Play's presets and A/B.
+    const bool hasProject = projectName.isNotEmpty();
+
+    for (auto* c : std::initializer_list<juce::Component*> { &addButton, &autoButton })
+        c->setVisible (hasProject && ! playMode);
+
+    for (auto* c : std::initializer_list<juce::Component*> { &presetBox, &savePresetButton, &deletePresetButton, &aButton, &bButton, &copyButton })
+        c->setVisible (hasProject && playMode);
 
     canvas.setDesignMode (! playMode);
     repaint();
+}
+
+void Workspace::PluginView::chooseMode (bool play)
+{
+    if (play == playMode)
+        return;
+
+    setPlayMode (play);
+
+    if (onMode != nullptr)
+        onMode (play);
 }
 
 void Workspace::PluginView::setBuild (BuildState state, const juce::String& status)
 {
     buildState = state;
     buildStatus = status;
-    buildButton.setEnabled (state != BuildState::building);
+    rebuildButton.setEnabled (state != BuildState::building);
     repaint (getLocalBounds().removeFromTop (barHeight));
 }
 
@@ -190,12 +225,7 @@ void Workspace::PluginView::paint (juce::Graphics& g)
     }
 
     // The build bar: a light for the state, and what's happening.
-    auto bar = getLocalBounds().removeFromTop (barHeight).reduced (16, 10);
-    bar.removeFromLeft (buildButton.getWidth() + 14);
-    bar.removeFromRight (logButton.getWidth() + exportButton.getWidth() + 20);
-
-    if (addButton.isVisible())
-        bar.removeFromRight (addButton.getWidth() + autoButton.getWidth() + 20);
+    auto bar = statusArea;
 
     const auto lightColour = buildState == BuildState::playing  ? Theme::safe
                            : buildState == BuildState::building ? Theme::hot
@@ -215,11 +245,18 @@ void Workspace::PluginView::paint (juce::Graphics& g)
 
     g.setColour (Theme::outline);
     g.fillRect (0, barHeight - 1, getWidth(), 1);
-    g.fillRect (0, barHeight + presetRowHeight - 1, getWidth(), 1);
+    g.fillRect (0, barHeight + rowHeight - 1, getWidth(), 1);
 
+    // The tab's own row: Play names its presets; Build says how editing works.
     g.setColour (Theme::muted);
     g.setFont (Theme::font (13.5f));
-    g.drawText ("Preset", juce::Rectangle<int> (16, barHeight, 60, presetRowHeight), juce::Justification::centredLeft, false);
+
+    if (playMode)
+        g.drawText ("Preset", juce::Rectangle<int> (16, barHeight, 60, rowHeight), juce::Justification::centredLeft, false);
+    else
+        g.drawFittedText (juce::String::fromUTF8 ("Click a part to select it \xc2\xb7 drag to move \xc2\xb7 drag its corner to resize \xc2\xb7 "
+                                                  "Delete removes it \xc2\xb7 double-click a knob to restyle it"),
+                          hintArea, juce::Justification::centredLeft, 1, 0.85f);
 }
 
 void Workspace::PluginView::resized()
@@ -228,30 +265,45 @@ void Workspace::PluginView::resized()
     newButton.setBounds (buttons.removeFromLeft (150).reduced (4, 0));
     openButton.setBounds (buttons.reduced (4, 0));
 
+    // The bar: the Build and Play tabs, the build's state, then Export, Rebuild and Log.
     auto bar = getLocalBounds().removeFromTop (barHeight).reduced (16, 9);
-    buildButton.setBounds (bar.removeFromLeft (124));
+    buildTab.setBounds (bar.removeFromLeft (84));
+    playTab.setBounds (bar.removeFromLeft (84));
+    bar.removeFromLeft (18);
+
     logButton.setBounds (bar.removeFromRight (64));
     bar.removeFromRight (6);
+    rebuildButton.setBounds (bar.removeFromRight (84));
+    bar.removeFromRight (14);
     exportButton.setBounds (bar.removeFromRight (100));
     bar.removeFromRight (14);
-    autoButton.setBounds (bar.removeFromRight (104));
-    bar.removeFromRight (6);
-    addButton.setBounds (bar.removeFromRight (72));
+    statusArea = bar.withTrimmedTop (1).withTrimmedBottom (1);
 
-    auto row = getLocalBounds().withTrimmedTop (barHeight).removeFromTop (presetRowHeight).reduced (16, 6);
-    row.removeFromLeft (56);
-    presetBox.setBounds (row.removeFromLeft (220));
-    row.removeFromLeft (8);
-    savePresetButton.setBounds (row.removeFromLeft (112));
-    row.removeFromLeft (6);
-    deletePresetButton.setBounds (row.removeFromLeft (70));
+    const auto row = getLocalBounds().withTrimmedTop (barHeight).removeFromTop (rowHeight).reduced (16, 6);
 
-    copyButton.setBounds (row.removeFromRight (110));
-    row.removeFromRight (8);
-    bButton.setBounds (row.removeFromRight (36));
-    aButton.setBounds (row.removeFromRight (36));
+    // Build's row: + Add and Auto layout, then how editing works.
+    auto tools = row;
+    addButton.setBounds (tools.removeFromLeft (72));
+    tools.removeFromLeft (6);
+    autoButton.setBounds (tools.removeFromLeft (104));
+    tools.removeFromLeft (18);
+    hintArea = tools;
 
-    canvas.setBounds (getLocalBounds().withTrimmedTop (barHeight + presetRowHeight));
+    // Play's row: the presets on the left, A and B on the right.
+    auto presets = row;
+    presets.removeFromLeft (56);
+    presetBox.setBounds (presets.removeFromLeft (220));
+    presets.removeFromLeft (8);
+    savePresetButton.setBounds (presets.removeFromLeft (112));
+    presets.removeFromLeft (6);
+    deletePresetButton.setBounds (presets.removeFromLeft (70));
+
+    copyButton.setBounds (presets.removeFromRight (110));
+    presets.removeFromRight (8);
+    bButton.setBounds (presets.removeFromRight (36));
+    aButton.setBounds (presets.removeFromRight (36));
+
+    canvas.setBounds (getLocalBounds().withTrimmedTop (barHeight + rowHeight));
 }
 
 //==============================================================================
@@ -299,10 +351,11 @@ Workspace::Workspace()
     pluginView.onAbChosen     = [this] (int slot) { if (onAbChosen != nullptr) onAbChosen (slot); };
     pluginView.canvas.onPresetChosen = [this] (int i) { if (onPresetChosen != nullptr) onPresetChosen (i); };
     pluginView.onAutoLayout = [this] { if (onAutoLayoutRequested != nullptr) onAutoLayoutRequested(); };
+    pluginView.onMode       = [this] (bool play) { if (onModeChanged != nullptr) onModeChanged (play); };
 
     pluginView.canvas.onLayoutEdited = [this] { if (onLayoutEdited != nullptr) onLayoutEdited(); };
 
-    // Double-click a knob in Design mode: its look opens in the Knob Studio.
+    // Double-click a knob in the Build tab: its look opens in the Knob Studio.
     pluginView.canvas.onEditKnob = [this] (int widgetIndex)
     {
         studio.setLayout (pluginView.canvas.getLayout());

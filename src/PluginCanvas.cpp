@@ -1428,10 +1428,10 @@ void PluginCanvas::paint (juce::Graphics& g)
     g.setColour (design ? Theme::accent.withAlpha (0.55f) : Theme::outline);
     g.drawRect (area, design ? 1.5f : 1.0f);
 
-    // Which mode, above the window's top-left corner.
+    // Which tab, above the window's top-left corner.
     g.setColour (design ? Theme::accent : Theme::safe);
     g.setFont (Theme::font (12.0f, true));
-    g.drawText (design ? "DESIGN" : "PLAY", juce::Rectangle<float> (area.getX(), area.getY() - 20.0f, 200.0f, 16.0f),
+    g.drawText (design ? "BUILD" : "PLAY", juce::Rectangle<float> (area.getX(), area.getY() - 20.0f, 200.0f, 16.0f),
                 juce::Justification::centredLeft, false);
 
     if (design && selected >= 0)

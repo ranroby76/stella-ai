@@ -94,7 +94,7 @@ MainComponent::MainComponent (Settings& s)
     topBar.onNew = [this] { newProject(); };
     topBar.onOpen = [this] { openProject(); };
     keyboardStrip.onDeviceClicked = [this] { showAudioSettings(); };
-    topBar.onModeChanged = [this] (bool play) { setPlayMode (play); };
+    workspace.onModeChanged = [this] (bool play) { setPlayMode (play); };
     topBar.onOpenRecent = [this] (const juce::File& file) { openProjectFile (file); };
     topBar.onRevealProject = [this] { if (project.isOpen()) project.getProjectFile().revealToUser(); };
     topBar.onCloseProject = [this] { project.close(); };
@@ -1089,8 +1089,8 @@ void MainComponent::updateDeviceSummary()
 
 void MainComponent::setPlayMode (bool shouldPlay)
 {
+    // The Plugin tab's Build and Play tabs.
     playMode = shouldPlay;
-    topBar.setPlayMode (playMode);
     workspace.setPlayMode (playMode);
 }
 

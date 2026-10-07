@@ -14,8 +14,9 @@
 /**
     The middle of the window, in three tabs:
 
-        Plugin       the plugin, playing live: its GUI, played in Play mode and reshaped
-                     in Design mode, with the build bar on top
+        Plugin       the plugin, playing live, in two tabs of its own: Build, where its
+                     GUI is reshaped, and Play, where the GUI is locked and plays like
+                     the finished plugin
         Schematic    its DSP blocks and wires; click a block to instruct the AI
         Knob Studio  KnobMaker's tools, for shaping a knob or a panel
 */
@@ -38,6 +39,8 @@ public:
 
     /** name empty: no project is open. */
     void setProject (const juce::String& name, const juce::String& kindName);
+
+    /** The Plugin tab's own tabs: Build (false) or Play (true). */
     void setPlayMode (bool playMode);
     void showTab (TabIndex index);
 
@@ -67,6 +70,7 @@ public:
     std::function<void()> onAutoLayoutRequested;
     std::function<void()> onLayoutEdited;
     std::function<void (int index, float value)> onParameterChanged;
+    std::function<void (bool playMode)> onModeChanged;   // the user picked Build or Play
 
     std::function<void (int presetIndex)> onPresetChosen;
     std::function<void()> onSavePreset;
@@ -97,22 +101,29 @@ private:
 
         std::function<void()> onNew, onOpen, onBuild, onShowLog, onExport, onAutoLayout, onSavePreset, onAbCopy;
         std::function<void (int)> onPresetChosen, onDeletePreset, onAbChosen;
+        std::function<void (bool playMode)> onMode;
 
         void paint (juce::Graphics&) override;
         void resized() override;
 
-        static constexpr int barHeight = 48, presetRowHeight = 40;
+        static constexpr int barHeight = 48, rowHeight = 40;
 
         PluginCanvas canvas;
 
     private:
         void showAddMenu();
+        void chooseMode (bool play);
 
         juce::TextButton newButton, openButton;
-        juce::TextButton buildButton { "Build & play" }, logButton { "Log" }, exportButton { "Export" };
+
+        // Two tabs: Build (reshape the panel) and Play (the panel locked, its controls live).
+        juce::TextButton buildTab { "Build" }, playTab { "Play" };
+        juce::TextButton rebuildButton { "Rebuild" }, logButton { "Log" }, exportButton { "Export" };
+
+        // The Build tab's row: add parts, or start over with an automatic panel.
         juce::TextButton addButton { "+ Add" }, autoButton { "Auto layout" };
 
-        // The presets row: choose, save and delete presets; compare A and B.
+        // The Play tab's row: choose, save and delete presets; compare A and B.
         juce::ComboBox presetBox;
         juce::TextButton savePresetButton, deletePresetButton { "Delete" };
         juce::TextButton aButton { "A" }, bButton { "B" }, copyButton { "Copy A to B" };
@@ -121,6 +132,7 @@ private:
         juce::String projectName, kind, buildStatus;
         BuildState buildState = BuildState::idle;
         bool playMode = false;
+        juce::Rectangle<int> statusArea, hintArea;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PluginView)
     };

@@ -17,8 +17,6 @@ namespace
         openId = 6,
         recentBaseId = 100
     };
-
-    constexpr int modeGroup = 4101;
 }
 
 //==============================================================================
@@ -27,26 +25,11 @@ TopBar::TopBar()
     projectButton.setTooltip ("New, open, the cloud and recent projects");
     projectButton.onClick = [this] { showProjectMenu(); };
 
-
     undoButton.onClick = [this] { if (onUndo != nullptr) onUndo(); };
     redoButton.onClick = [this] { if (onRedo != nullptr) onRedo(); };
     setUndoState ({}, {});
 
-    for (auto* button : { &designButton, &playButton })
-    {
-        button->setClickingTogglesState (true);
-        button->setRadioGroupId (modeGroup);
-        button->setColour (juce::TextButton::buttonOnColourId, Theme::accent);
-    }
-
-    designButton.setTooltip ("Design mode: shape the plugin's GUI and blocks");
-    playButton.setTooltip ("Play mode: use the plugin exactly as it will be in a DAW");
-
-    designButton.setToggleState (true, juce::dontSendNotification);
-    designButton.onClick = [this] { if (designButton.getToggleState() && onModeChanged != nullptr) onModeChanged (false); };
-    playButton.onClick   = [this] { if (playButton.getToggleState() && onModeChanged != nullptr) onModeChanged (true); };
-
-    for (auto* button : { &projectButton, &undoButton, &redoButton, &designButton, &playButton })
+    for (auto* button : { &projectButton, &undoButton, &redoButton })
         addAndMakeVisible (button);
 
     fananLogo = juce::ImageCache::getFromMemory (StellaAssets::fanan_logo_png, StellaAssets::fanan_logo_pngSize);
@@ -59,11 +42,6 @@ void TopBar::setProjectName (const juce::String& name)
 {
     hasProject = name.isNotEmpty();
     projectButton.setButtonText ((hasProject ? name : juce::String ("No project")) + juce::String::fromUTF8 ("  \xe2\x96\xbe"));
-}
-
-void TopBar::setPlayMode (bool playMode)
-{
-    (playMode ? playButton : designButton).setToggleState (true, juce::dontSendNotification);
 }
 
 //==============================================================================
@@ -187,12 +165,4 @@ void TopBar::resized()
     undoButton.setBounds (area.removeFromLeft (58));
     area.removeFromLeft (4);
     redoButton.setBounds (area.removeFromLeft (58));
-    area.removeFromLeft (12);
-
-    auto modes = area.withSizeKeepingCentre (juce::jmin (area.getWidth(), 152), area.getHeight());
-    designButton.setBounds (modes.removeFromLeft (modes.getWidth() / 2));
-    playButton.setBounds (modes);
-
-    designButton.setConnectedEdges (juce::Button::ConnectedOnRight);
-    playButton.setConnectedEdges (juce::Button::ConnectedOnLeft);
 }

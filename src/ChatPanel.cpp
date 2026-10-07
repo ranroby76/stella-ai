@@ -20,7 +20,7 @@ namespace
             "  \xe2\x80\xa2 a warm tape delay with wow and flutter\n"
             "  \xe2\x80\xa2 a three-oscillator bass synth with a ladder filter\n"
             "  \xe2\x80\xa2 a MIDI arpeggiator that follows the chord\n\n"
-            "It plays live while you shape it. In Design mode you reshape its GUI; in the "
+            "It plays live while you shape it. In the Build tab you reshape its GUI; in the "
             "Schematic, click any block and tell Stella AI what to change in it.");
     }
 }

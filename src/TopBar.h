@@ -9,8 +9,8 @@
 //==============================================================================
 /**
     The strip across the top: the project menu (New, Open, the cloud, recent projects),
-    Undo and Redo, the Design / Play switch, and the Fanan logo on the right. The audio
-    device lives in the bottom strip.
+    Undo and Redo, and the Fanan logo on the right. The Build / Play tabs live in the
+    Plugin tab, and the audio device in the bottom strip.
 */
 class TopBar final : public juce::Component
 {
@@ -18,13 +18,11 @@ public:
     TopBar();
 
     void setProjectName (const juce::String& name);   // empty: no project open
-    void setPlayMode (bool playMode);
 
     std::function<void()> onNew;
     std::function<void()> onOpen;
     std::function<void()> onRevealProject;
     std::function<void()> onCloseProject;
-    std::function<void (bool playMode)> onModeChanged;
     std::function<void (const juce::File& projectFile)> onOpenRecent;
     /** What Undo and Redo would do ("Stella AI: add a chorus"), or empty when they can't. */
     void setUndoState (const juce::String& undoLabel, const juce::String& redoLabel);
@@ -49,7 +47,6 @@ private:
 
     juce::TextButton projectButton;
     juce::TextButton undoButton { "Undo" }, redoButton { "Redo" };
-    juce::TextButton designButton { "Design" }, playButton { "Play" };
 
     bool hasProject = false;
     juce::Rectangle<int> logoArea, fananArea;
