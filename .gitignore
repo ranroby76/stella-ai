@@ -1,2 +1,3 @@
 # Build output and downloaded tools stay out of the repository.
 build/
+deps/
