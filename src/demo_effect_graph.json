@@ -1,0 +1,12 @@
+{
+  "format": 1,
+  "modules": [
+    { "id": "delay", "type": "StereoDelay" }
+  ],
+  "wires": [
+    { "from": "plugin.in L", "to": "delay.in L" },
+    { "from": "plugin.in R", "to": "delay.in R" },
+    { "from": "delay.out L", "to": "plugin.out L" },
+    { "from": "delay.out R", "to": "plugin.out R" }
+  ]
+}

@@ -1,0 +1,267 @@
+// C:\workspace\Stella AI Studio\src\WasmCompiler.cpp
+
+#include "WasmCompiler.h"
+
+#include "StellaRuntimeData.h"
+#include "StellaToolchainPaths.h"
+
+namespace
+{
+    juce::File clangIn (const juce::File& sdk)
+    {
+       #if JUCE_WINDOWS
+        return sdk.getChildFile ("bin").getChildFile ("clang++.exe");
+       #else
+        return sdk.getChildFile ("bin").getChildFile ("clang++");
+       #endif
+    }
+
+    /** A C++ string literal for any text. */
+    juce::String literal (const juce::String& text)
+    {
+        juce::String result ("\"");
+
+        for (auto c : text)
+        {
+            if (c == '"' || c == '\\')
+                result << '\\' << juce::String::charToString (c);
+            else if (c >= 32 && c < 127)
+                result << juce::String::charToString (c);
+        }
+
+        return result + "\"";
+    }
+
+    bool isIdentifier (const juce::String& text)
+    {
+        return text.isNotEmpty()
+            && text.containsOnly ("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_")
+            && ! juce::CharacterFunctions::isDigit (text[0]);
+    }
+
+    /** "voices.out" -> ("voices", "out"). Port names may have spaces ("out L"). */
+    bool splitEnd (const juce::String& end, juce::String& module, juce::String& port)
+    {
+        const auto dot = end.indexOfChar ('.');
+
+        if (dot <= 0 || dot >= end.length() - 1)
+            return false;
+
+        module = end.substring (0, dot).trim();
+        port = end.substring (dot + 1).trim();
+        return module.isNotEmpty() && port.isNotEmpty();
+    }
+
+    bool writeResource (const juce::File& file, const char* data, int size)
+    {
+        return file.replaceWithData (data, (size_t) size);
+    }
+}
+
+//==============================================================================
+juce::File WasmCompiler::findCompiler()
+{
+    // Beside the program in a finished install; in the build folder while developing.
+    const auto besideProgram = juce::File::getSpecialLocation (juce::File::currentExecutableFile)
+                                   .getParentDirectory().getChildFile ("wasi-sdk");
+
+    for (const auto& candidate : { besideProgram, juce::File (STELLA_WASI_SDK_DIR) })
+        if (clangIn (candidate).existsAsFile())
+            return candidate;
+
+    return {};
+}
+
+//==============================================================================
+juce::Result WasmCompiler::writeStarter (const juce::File& projectFolder, PluginKind kind)
+{
+    const auto graphFile = projectFolder.getChildFile (graphFileName);
+
+    if (graphFile.existsAsFile())
+        return juce::Result::ok();
+
+    const auto modules = projectFolder.getChildFile ("modules");
+
+    if (! modules.isDirectory() && ! modules.createDirectory())
+        return juce::Result::fail ("Couldn't create " + modules.getFullPathName());
+
+    bool written = true;
+
+    if (kind == PluginKind::effect)
+    {
+        written = writeResource (modules.getChildFile ("StereoDelay.cpp"), StellaRuntimeData::demo_StereoDelay_cpp, StellaRuntimeData::demo_StereoDelay_cppSize)
+               && writeResource (graphFile, StellaRuntimeData::demo_effect_graph_json, StellaRuntimeData::demo_effect_graph_jsonSize);
+    }
+    else
+    {
+        // Instruments, and MIDI effects until they can be built: a small synth.
+        written = writeResource (modules.getChildFile ("PolyOsc.cpp"), StellaRuntimeData::demo_PolyOsc_cpp, StellaRuntimeData::demo_PolyOsc_cppSize)
+               && writeResource (modules.getChildFile ("LowPass.cpp"), StellaRuntimeData::demo_LowPass_cpp, StellaRuntimeData::demo_LowPass_cppSize)
+               && writeResource (modules.getChildFile ("Gain.cpp"), StellaRuntimeData::demo_Gain_cpp, StellaRuntimeData::demo_Gain_cppSize)
+               && writeResource (graphFile, StellaRuntimeData::demo_instrument_graph_json, StellaRuntimeData::demo_instrument_graph_jsonSize);
+    }
+
+    return written ? juce::Result::ok() : juce::Result::fail ("Couldn't write the starter plugin into " + projectFolder.getFullPathName());
+}
+
+//==============================================================================
+juce::Result WasmCompiler::generateGraphSource (const juce::File& graphFile, juce::String& source)
+{
+    juce::var graph;
+    const auto parsed = juce::JSON::parse (graphFile.loadFileAsString(), graph);
+
+    if (parsed.failed() || ! graph.isObject())
+        return juce::Result::fail ("graph.json isn't valid JSON: " + parsed.getErrorMessage());
+
+    const auto* modules = graph.getProperty ("modules", {}).getArray();
+    const auto* wires = graph.getProperty ("wires", {}).getArray();
+
+    if (modules == nullptr || modules->isEmpty())
+        return juce::Result::fail ("graph.json has no modules.");
+
+    juce::String moduleRows, wireRows;
+
+    for (const auto& module : *modules)
+    {
+        const auto id = module.getProperty ("id", {}).toString().trim();
+        const auto type = module.getProperty ("type", {}).toString().trim();
+
+        if (! isIdentifier (id) || id == "plugin")
+            return juce::Result::fail ("graph.json: \"" + id + "\" can't be a module id (letters, digits and _ only, and not \"plugin\").");
+
+        if (! isIdentifier (type))
+            return juce::Result::fail ("graph.json: \"" + type + "\" isn't a module type name.");
+
+        moduleRows << "        { " << literal (id) << ", " << literal (type) << " },\n";
+    }
+
+    int numWires = 0;
+
+    if (wires != nullptr)
+    {
+        for (const auto& wire : *wires)
+        {
+            juce::String fromModule, fromPort, toModule, toPort;
+
+            if (! splitEnd (wire.getProperty ("from", {}).toString(), fromModule, fromPort)
+                || ! splitEnd (wire.getProperty ("to", {}).toString(), toModule, toPort))
+                return juce::Result::fail ("graph.json: a wire needs \"from\" and \"to\" like \"filter.out\".");
+
+            wireRows << "        { " << literal (fromModule) << ", " << literal (fromPort) << ", "
+                     << literal (toModule) << ", " << literal (toPort) << " },\n";
+            ++numWires;
+        }
+    }
+
+    if (numWires == 0)
+        wireRows = "        { \"\", \"\", \"\", \"\" },\n";   // an array can't be empty; the count says 0
+
+    source.clear();
+    source << "// Generated by Stella AI Studio from graph.json. Don't edit: it's rewritten on every build.\n\n"
+           << "#include \"stella_runtime.h\"\n\n"
+           << "namespace stella\n{\n"
+           << "    extern const GraphModule graphModules[]\n    {\n" << moduleRows << "    };\n\n"
+           << "    extern const int numGraphModules = " << modules->size() << ";\n\n"
+           << "    extern const GraphWire graphWires[]\n    {\n" << wireRows << "    };\n\n"
+           << "    extern const int numGraphWires = " << numWires << ";\n"
+           << "}\n";
+
+    return juce::Result::ok();
+}
+
+bool WasmCompiler::writeRuntime (const juce::File& folder)
+{
+    return writeResource (folder.getChildFile ("stella_api.h"), StellaRuntimeData::stella_api_h, StellaRuntimeData::stella_api_hSize)
+        && writeResource (folder.getChildFile ("stella_runtime.h"), StellaRuntimeData::stella_runtime_h, StellaRuntimeData::stella_runtime_hSize)
+        && writeResource (folder.getChildFile ("stella_runtime.cpp"), StellaRuntimeData::stella_runtime_cpp, StellaRuntimeData::stella_runtime_cppSize);
+}
+
+//==============================================================================
+WasmCompiler::Result WasmCompiler::compile (const juce::File& projectFolder, const juce::String& projectId)
+{
+    Result result;
+    const auto started = juce::Time::getMillisecondCounterHiRes();
+
+    const auto sdk = findCompiler();
+
+    if (sdk == juce::File())
+    {
+        result.log = "The plugin compiler that comes with Stella AI Studio is missing. Reinstall the studio.";
+        return result;
+    }
+
+    // The work folder is the studio's own, outside the project: the project stays clean.
+    const auto work = juce::File::getSpecialLocation (juce::File::tempDirectory)
+                          .getChildFile ("Stella AI Studio")
+                          .getChildFile ("build-" + juce::File::createLegalFileName (projectId));
+
+    if (! work.isDirectory() && ! work.createDirectory())
+    {
+        result.log = "Couldn't create the build folder " + work.getFullPathName();
+        return result;
+    }
+
+    juce::String graphSource;
+
+    if (const auto graph = generateGraphSource (projectFolder.getChildFile (graphFileName), graphSource); graph.failed())
+    {
+        result.log = graph.getErrorMessage();
+        return result;
+    }
+
+    const auto output = work.getChildFile ("plugin.wasm");
+    output.deleteFile();
+
+    if (! writeRuntime (work) || ! work.getChildFile ("stella_graph.cpp").replaceWithText (graphSource))
+    {
+        result.log = "Couldn't write into the build folder " + work.getFullPathName();
+        return result;
+    }
+
+    const auto modules = projectFolder.getChildFile ("modules");
+    auto moduleFiles = modules.findChildFiles (juce::File::findFiles, false, "*.cpp");
+    moduleFiles.sort();
+
+    juce::StringArray args;
+    args.add (clangIn (sdk).getFullPathName());
+    args.add ("--target=wasm32-wasip1");
+    args.add ("--sysroot=" + sdk.getChildFile ("share").getChildFile ("wasi-sysroot").getFullPathName());
+    args.addArray ({ "-O2", "-std=c++17", "-fno-exceptions", "-fno-rtti", "-mexec-model=reactor", "-Wall" });
+    args.add ("-I" + work.getFullPathName());
+    args.add ("-I" + modules.getFullPathName());
+    args.add ("-o");
+    args.add (output.getFullPathName());
+    args.add (work.getChildFile ("stella_runtime.cpp").getFullPathName());
+    args.add (work.getChildFile ("stella_graph.cpp").getFullPathName());
+
+    for (const auto& file : moduleFiles)
+        args.add (file.getFullPathName());
+
+    args.add ("-Wl,--strip-all");
+
+    juce::ChildProcess clang;
+
+    if (! clang.start (args, juce::ChildProcess::wantStdOut | juce::ChildProcess::wantStdErr))
+    {
+        result.log = "The plugin compiler couldn't be started.";
+        return result;
+    }
+
+    auto log = clang.readAllProcessOutput();
+    clang.waitForProcessToFinish (5000);
+
+    // Shorter messages: "modules/LowPass.cpp:12:3: error ..." rather than full paths.
+    log = log.replace (modules.getFullPathName() + juce::File::getSeparatorString(), "modules/")
+             .replace (work.getFullPathName() + juce::File::getSeparatorString(), "")
+             .trim();
+
+    result.log = log;
+    result.ok = clang.getExitCode() == 0 && output.existsAsFile();
+    result.wasm = result.ok ? output : juce::File();
+    result.seconds = (juce::Time::getMillisecondCounterHiRes() - started) / 1000.0;
+
+    if (! result.ok && result.log.isEmpty())
+        result.log = "The plugin compiler stopped without saying why.";
+
+    return result;
+}

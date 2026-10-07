@@ -1,0 +1,14 @@
+{
+  "format": 1,
+  "modules": [
+    { "id": "voices", "type": "PolyOsc" },
+    { "id": "filter", "type": "LowPass" },
+    { "id": "output", "type": "Gain" }
+  ],
+  "wires": [
+    { "from": "voices.out", "to": "filter.in" },
+    { "from": "filter.out", "to": "output.in" },
+    { "from": "output.out", "to": "plugin.out L" },
+    { "from": "output.out", "to": "plugin.out R" }
+  ]
+}
