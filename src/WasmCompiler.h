@@ -30,10 +30,6 @@ public:
     /** Compiles the project. Takes a few seconds: call it on a worker thread. */
     static Result compile (const juce::File& projectFolder, const juce::String& projectId);
 
-    /** A new project starts with a working demo (a small synth, or a delay for effects),
-        so it plays at once. Does nothing if the project already has a graph. */
-    static juce::Result writeStarter (const juce::File& projectFolder, PluginKind kind);
-
     /** The bundled compiler's folder, or an empty File if it's missing. */
     static juce::File findCompiler();
 

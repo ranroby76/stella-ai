@@ -25,8 +25,6 @@ add_subdirectory("${JUCE_DIR}" JUCE)
 # ------------------------------------------------------------------------------
 include(src/StellaToolchain.cmake)
 
-# The Stella runtime and the starter plugin, carried inside the app: they're compiled
-# into each plugin, not into the studio.
 # The studio's own images, compiled into the app.
 juce_add_binary_data(StellaAssets
     HEADER_NAME StellaAssets.h
@@ -34,6 +32,8 @@ juce_add_binary_data(StellaAssets
     SOURCES
         "assets/fanan logo.png")
 
+# The Stella runtime, the plugin wrappers and Stella AI's guide, carried inside the app:
+# the runtime and wrappers are compiled into each plugin, not into the studio.
 juce_add_binary_data(StellaRuntimeData
     HEADER_NAME StellaRuntimeData.h
     NAMESPACE   StellaRuntimeData
@@ -47,13 +47,7 @@ juce_add_binary_data(StellaRuntimeData
         src/stella_gui.cpp
         src/stella_gui_win32.cpp
         src/stb_image.h
-        src/stella_builder_guide.md
-        src/demo_PolyOsc.cpp
-        src/demo_LowPass.cpp
-        src/demo_Gain.cpp
-        src/demo_StereoDelay.cpp
-        src/demo_instrument_graph.json
-        src/demo_effect_graph.json)
+        src/stella_builder_guide.md)
 
 # ------------------------------------------------------------------------------
 # App

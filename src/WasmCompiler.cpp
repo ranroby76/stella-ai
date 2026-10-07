@@ -73,38 +73,6 @@ juce::File WasmCompiler::findCompiler()
 }
 
 //==============================================================================
-juce::Result WasmCompiler::writeStarter (const juce::File& projectFolder, PluginKind kind)
-{
-    const auto graphFile = projectFolder.getChildFile (graphFileName);
-
-    if (graphFile.existsAsFile())
-        return juce::Result::ok();
-
-    const auto modules = projectFolder.getChildFile ("modules");
-
-    if (! modules.isDirectory() && ! modules.createDirectory())
-        return juce::Result::fail ("Couldn't create " + modules.getFullPathName());
-
-    bool written = true;
-
-    if (kind == PluginKind::effect)
-    {
-        written = writeResource (modules.getChildFile ("StereoDelay.cpp"), StellaRuntimeData::demo_StereoDelay_cpp, StellaRuntimeData::demo_StereoDelay_cppSize)
-               && writeResource (graphFile, StellaRuntimeData::demo_effect_graph_json, StellaRuntimeData::demo_effect_graph_jsonSize);
-    }
-    else
-    {
-        // Instruments, and MIDI effects until they can be built: a small synth.
-        written = writeResource (modules.getChildFile ("PolyOsc.cpp"), StellaRuntimeData::demo_PolyOsc_cpp, StellaRuntimeData::demo_PolyOsc_cppSize)
-               && writeResource (modules.getChildFile ("LowPass.cpp"), StellaRuntimeData::demo_LowPass_cpp, StellaRuntimeData::demo_LowPass_cppSize)
-               && writeResource (modules.getChildFile ("Gain.cpp"), StellaRuntimeData::demo_Gain_cpp, StellaRuntimeData::demo_Gain_cppSize)
-               && writeResource (graphFile, StellaRuntimeData::demo_instrument_graph_json, StellaRuntimeData::demo_instrument_graph_jsonSize);
-    }
-
-    return written ? juce::Result::ok() : juce::Result::fail ("Couldn't write the starter plugin into " + projectFolder.getFullPathName());
-}
-
-//==============================================================================
 juce::Result WasmCompiler::generateGraphSource (const juce::File& graphFile, juce::String& source)
 {
     juce::var graph;

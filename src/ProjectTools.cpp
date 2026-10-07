@@ -516,7 +516,7 @@ void ProjectTools::run (const juce::String& name, const juce::var& input, Done d
             return fail (created.getErrorMessage());
 
         done ("Created and opened the project \"" + projectName + "\" (" + Project::kindDisplayName (kind)
-                  + "). It starts with a small demo plugin; replace its modules with your design (delete the files you don't use), then build.\n\n"
+                  + "). It's empty: write its modules, wire them with set_graph, then build.\n\n"
                   + describeProject(),
               false);
         return;

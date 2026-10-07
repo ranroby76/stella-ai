@@ -7,6 +7,14 @@
 
 namespace
 {
+    /** A new project is empty until Stella AI writes its first modules and wires them. */
+    bool hasNothingToBuild (const Project& project)
+    {
+        return ! project.isOpen() || ! project.getFolder().getChildFile (WasmCompiler::graphFileName).existsAsFile();
+    }
+
+    constexpr const char* emptyProjectStatus = "Empty so far: describe your plugin to Stella AI";
+
     //==============================================================================
     class AudioSettingsWindow final : public juce::DocumentWindow
     {
@@ -201,22 +209,12 @@ MainComponent::MainComponent (Settings& s)
     addAndMakeVisible (workspace);
     addAndMakeVisible (keyboardStrip);
 
+    // The studio starts with no project open: the user opens one (recent projects are in the
+    // project menu) or asks Stella AI for a plugin.
     projectChanged();
     updateDeviceSummary();
     connectionChanged();
     setSize (1360, 860);
-
-    // Reopen the last project once the window is up, so any problem shows over it.
-    juce::MessageManager::callAsync ([safeThis = juce::Component::SafePointer<MainComponent> (this)]
-    {
-        if (safeThis == nullptr)
-            return;
-
-        const auto recent = safeThis->settings.getRecentProjects();
-
-        if (! recent.isEmpty() && ! safeThis->project.isOpen())
-            safeThis->openProjectFile (juce::File (recent[0]));
-    });
 }
 
 MainComponent::~MainComponent()
@@ -271,13 +269,11 @@ void MainComponent::projectChanged()
         workspace.setProject (info.name, Project::kindDisplayName (info.kind));
         settings.addRecentProject (project.getProjectFile());
 
-        // A newly opened project starts playing at once (a new one gets a demo to play).
+        // A newly opened project starts playing at once; a new one stays empty until Stella AI
+        // builds it.
         if (info.uuid != builtProjectId)
         {
             builtProjectId = info.uuid;
-
-            if (const auto starter = WasmCompiler::writeStarter (project.getFolder(), info.kind); starter.failed())
-                showError ("Couldn't set up the plugin", starter.getErrorMessage());
 
             workspace.getSchematic().setPositions (juce::JSON::parse (project.getGuiFolder().getChildFile ("schematic.json"))
                                                        .getProperty ("positions", {}));
@@ -320,19 +316,29 @@ void MainComponent::projectChanged()
 
 void MainComponent::buildPlugin()
 {
-    if (project.isOpen())
-        preview.build (project.getFolder(), project.getInfo().uuid);
+    if (! project.isOpen())
+        return;
+
+    // Nothing to build yet: stop whatever was playing before.
+    if (hasNothingToBuild (project))
+    {
+        preview.unload();
+        return;
+    }
+
+    preview.build (project.getFolder(), project.getInfo().uuid);
 }
 
 void MainComponent::previewChanged()
 {
     const auto state = preview.getState();
+    const bool empty = state == LivePreview::State::idle && project.isOpen() && hasNothingToBuild (project);
 
     workspace.setBuild (state == LivePreview::State::building ? Workspace::BuildState::building
                       : state == LivePreview::State::playing  ? Workspace::BuildState::playing
                       : state == LivePreview::State::failed   ? Workspace::BuildState::failed
                                                               : Workspace::BuildState::idle,
-                        preview.getStatus());
+                        empty ? juce::String (emptyProjectStatus) : preview.getStatus());
 
     // The knobs are rebuilt only when the plugin's parameter list changed.
     if (preview.getParametersVersion() != shownParamsVersion)
@@ -899,6 +905,12 @@ void MainComponent::exportPlugin()
 {
     if (! project.isOpen() || exporting)
         return;
+
+    if (hasNothingToBuild (project))
+    {
+        showError ("Nothing to export yet", "Describe your plugin to Stella AI first. Once it plays, Export turns it into files your DAW loads.");
+        return;
+    }
 
     exporting = true;
     workspace.setExporting (true);
