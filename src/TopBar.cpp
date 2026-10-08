@@ -3,6 +3,8 @@
 #include "TopBar.h"
 #include "StellaLookAndFeel.h"
 
+#include <juce_audio_basics/juce_audio_basics.h>
+
 #include "StellaAssets.h"
 
 namespace
@@ -18,8 +20,9 @@ namespace
         recentBaseId = 100
     };
 
-    const juce::Font tabFont()      { return Theme::font (14.5f, true); }
-    const juce::Font menuFont()     { return Theme::font (14.5f); }
+    juce::Font tabFont()     { return Theme::font (14.5f, true); }
+    juce::Font menuFont()    { return Theme::font (14.5f); }
+    juce::Font pillFont()    { return Theme::font (13.0f); }
 
     int textWidth (const juce::Font& font, const juce::String& text)
     {
@@ -27,6 +30,11 @@ namespace
         glyphs.addLineOfText (font, text, 0.0f, 0.0f);
         return (int) std::ceil (glyphs.getBoundingBox (0, glyphs.getNumGlyphs(), true).getWidth());
     }
+
+    const juce::String dot = juce::String::fromUTF8 (" \xc2\xb7 ");
+
+    constexpr int pillPadding = 14, minPillWidth = 120, maxPillWidth = 460;
+    constexpr int wordmarkWidth = 172, meterWidth = 16, loadWidth = 72, audioButtonWidth = 104;
 }
 
 //==============================================================================
@@ -66,18 +74,133 @@ void TopBar::TabButton::paintButton (juce::Graphics& g, bool highlighted, bool d
     }
 }
 
+juce::String TopBar::DevicePill::textFor (int room) const
+{
+    // As many whole pieces as fit; the first one shortened only when even it doesn't.
+    auto shown = pieces.isEmpty() ? juce::String() : pieces[0];
+
+    for (int i = 2; i <= pieces.size(); ++i)
+    {
+        const auto longer = juce::StringArray (pieces.begin(), i).joinIntoString (dot);
+
+        if (textWidth (pillFont(), longer) > room)
+            break;
+
+        shown = longer;
+    }
+
+    return shown;
+}
+
+int TopBar::DevicePill::getWidthFor (int room) const
+{
+    return juce::jmin (room, textWidth (pillFont(), textFor (room - pillPadding * 2)) + pillPadding * 2);
+}
+
+void TopBar::DevicePill::paintButton (juce::Graphics& g, bool highlighted, bool down)
+{
+    const auto box = getLocalBounds().toFloat().reduced (0.5f);
+    const auto radius = box.getHeight() * 0.5f;
+
+    g.setColour (down ? Theme::raised.brighter (0.12f) : (highlighted ? Theme::raised.brighter (0.06f) : Theme::raised));
+    g.fillRoundedRectangle (box, radius);
+    g.setColour (highlighted ? Theme::accent.withAlpha (0.6f) : Theme::outline);
+    g.drawRoundedRectangle (box, radius, 1.0f);
+
+    g.setColour (Theme::text.withAlpha (0.88f));
+    g.setFont (pillFont());
+    g.drawText (textFor (getWidth() - pillPadding * 2), getLocalBounds().reduced (pillPadding, 0), juce::Justification::centred, true);
+}
+
+//==============================================================================
+float TopBar::Meter::toPosition (float gain) noexcept
+{
+    // -60 dB at the bottom, +6 dB at the top.
+    const auto db = juce::Decibels::gainToDecibels (gain, -60.0f);
+    return juce::jlimit (0.0f, 1.0f, (db + 60.0f) / 66.0f);
+}
+
+void TopBar::Meter::setLevels (float left, float right)
+{
+    const float incoming[2] { left, right };
+
+    for (int i = 0; i < 2; ++i)
+    {
+        // Fast up, slow down; the peak line holds for about a second.
+        levels[i] = incoming[i] > levels[i] ? incoming[i] : levels[i] * 0.86f;
+
+        if (incoming[i] >= holds[i])
+        {
+            holds[i] = incoming[i];
+            holdFrames[i] = 30;
+        }
+        else if (--holdFrames[i] <= 0)
+        {
+            holds[i] *= 0.9f;
+        }
+    }
+
+    repaint();
+}
+
+void TopBar::Meter::paint (juce::Graphics& g)
+{
+    const auto bounds = getLocalBounds().toFloat();
+    const auto barWidth = (bounds.getWidth() - 2.0f) * 0.5f;
+
+    for (int i = 0; i < 2; ++i)
+    {
+        const auto frame = juce::Rectangle<float> (bounds.getX() + (float) i * (barWidth + 2.0f), bounds.getY(),
+                                                   barWidth, bounds.getHeight());
+
+        // A thin frame, so the meter shows even in silence.
+        g.setColour (Theme::outline);
+        g.fillRect (frame);
+        const auto bar = frame.reduced (1.0f);
+        g.setColour (Theme::inset);
+        g.fillRect (bar);
+
+        const auto top = bar.getBottom() - bar.getHeight() * toPosition (levels[i]);
+        const auto zeroDb = bar.getBottom() - bar.getHeight() * toPosition (1.0f);
+        const auto minus6 = bar.getBottom() - bar.getHeight() * toPosition (0.5f);
+
+        g.setColour (Theme::safe);
+        g.fillRect (bar.withTop (juce::jmax (top, minus6)));
+
+        if (top < minus6)
+        {
+            g.setColour (Theme::hot);
+            g.fillRect (bar.withTop (juce::jmax (top, zeroDb)).withBottom (minus6));
+        }
+
+        if (top < zeroDb)
+        {
+            g.setColour (Theme::clip);
+            g.fillRect (bar.withTop (top).withBottom (zeroDb));
+        }
+
+        if (holds[i] > 0.001f)
+        {
+            const auto holdY = bar.getBottom() - bar.getHeight() * toPosition (holds[i]);
+            g.setColour (holds[i] >= 1.0f ? Theme::clip : Theme::text.withAlpha (0.7f));
+            g.fillRect (bar.withTop (holdY).withHeight (1.5f));
+        }
+    }
+}
+
 //==============================================================================
 TopBar::TopBar()
 {
-    fileMenu.setTooltip ("New, open, the cloud and recent projects");
-    fileMenu.onClick = [this] { showFileMenu(); };
+    optionsMenu.setTooltip ("New, open, the cloud and recent projects");
+    optionsMenu.onClick = [this] { showOptionsMenu(); };
 
-    undoButton.onClick = [this] { if (onUndo != nullptr) onUndo(); };
-    redoButton.onClick = [this] { if (onRedo != nullptr) onRedo(); };
-    setUndoState ({}, {});
+    devicePill.onClick = [this] { if (onAudioSettings != nullptr) onAudioSettings(); };
+    audioButton.setTooltip ("Audio and MIDI settings");
+    audioButton.onClick = [this] { if (onAudioSettings != nullptr) onAudioSettings(); };
+    meter.setTooltip ("Output level");
 
-    for (auto* button : std::initializer_list<juce::Component*> { &fileMenu, &undoButton, &redoButton })
-        addAndMakeVisible (button);
+    for (auto* c : std::initializer_list<juce::Component*> { &optionsMenu, &devicePill, &meter, &audioButton })
+        addAndMakeVisible (c);
 
     for (int i = 0; i < numTabs; ++i)
     {
@@ -87,10 +210,16 @@ TopBar::TopBar()
     }
 
     setCurrentTab (0);
+    setDevice ({ "No audio device" }, "No audio device is open");
 
     fananLogo = juce::ImageCache::getFromMemory (StellaAssets::fanan_logo_png, StellaAssets::fanan_logo_pngSize);
 
-    setProjectName ({});
+    startTimerHz (30);
+}
+
+TopBar::~TopBar()
+{
+    stopTimer();
 }
 
 //==============================================================================
@@ -105,8 +234,31 @@ void TopBar::setCurrentTab (int index)
         tabs[i]->setToggleState (i == index, juce::dontSendNotification);
 }
 
+void TopBar::setDevice (const juce::StringArray& details, const juce::String& tooltip)
+{
+    juce::StringArray pieces (details);
+    pieces.removeEmptyStrings();
+
+    devicePill.setPieces (pieces);
+    devicePill.setTooltip (tooltip + "\nClick for the audio settings");
+    resized();
+}
+
+void TopBar::timerCallback()
+{
+    meter.setLevels (takePeak != nullptr ? takePeak (0) : 0.0f, takePeak != nullptr ? takePeak (1) : 0.0f);
+
+    const auto load = juce::String (juce::roundToInt ((audioLoad != nullptr ? audioLoad() : 0.0) * 100.0)) + "%";
+
+    if (load != loadText)
+    {
+        loadText = load;
+        repaint (loadArea);
+    }
+}
+
 //==============================================================================
-void TopBar::showFileMenu()
+void TopBar::showOptionsMenu()
 {
     // A plain Windows-style menu: text items, separators, and a submenu for recent projects.
     const auto recent = recentProjects != nullptr ? recentProjects() : juce::StringArray();
@@ -138,15 +290,15 @@ void TopBar::showFileMenu()
     menu.addItem (revealId, "Show project folder", hasProject);
     menu.addItem (closeId, "Close project", hasProject);
 
-    fileMenu.setOpen (true);
+    optionsMenu.setOpen (true);
 
-    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&fileMenu).withMinimumWidth (220),
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&optionsMenu).withMinimumWidth (220),
                         [safeThis = juce::Component::SafePointer<TopBar> (this), recent] (int result)
                         {
                             if (safeThis == nullptr)
                                 return;
 
-                            safeThis->fileMenu.setOpen (false);
+                            safeThis->optionsMenu.setOpen (false);
 
                             if (result == newId && safeThis->onNew != nullptr)
                                 safeThis->onNew();
@@ -174,24 +326,34 @@ void TopBar::paint (juce::Graphics& g)
     g.fillRect (0, getHeight() - 1, getWidth(), 1);
 
     // STELLA in the accent, AI STUDIO quieter.
-    juce::GlyphArrangement first;
-    const auto bold = Theme::font (17.0f, true);
-    const auto light = Theme::font (17.0f);
+    if (! wordmarkArea.isEmpty())
+    {
+        const auto bold = Theme::font (17.0f, true);
+        const auto area = wordmarkArea.toFloat();
 
-    first.addLineOfText (bold, "STELLA", 0.0f, 0.0f);
-    const auto firstWidth = first.getBoundingBox (0, first.getNumGlyphs(), true).getWidth();
+        g.setFont (bold);
+        g.setColour (Theme::accent);
+        g.drawText ("STELLA", area, juce::Justification::centredLeft, false);
 
-    auto area = logoArea.toFloat();
-    g.setFont (bold);
-    g.setColour (Theme::accent);
-    g.drawText ("STELLA", area, juce::Justification::centredLeft, false);
+        g.setFont (Theme::font (17.0f));
+        g.setColour (Theme::muted);
+        g.drawText ("AI STUDIO", area.withTrimmedLeft ((float) textWidth (bold, "STELLA") + 6.0f), juce::Justification::centredLeft, false);
+    }
 
-    g.setFont (light);
-    g.setColour (Theme::muted);
-    g.drawText ("AI STUDIO", area.withTrimmedLeft (firstWidth + 6.0f), juce::Justification::centredLeft, false);
+    // The audio load, beside the meter.
+    if (! loadArea.isEmpty())
+    {
+        auto load = loadArea;
+        g.setColour (Theme::muted);
+        g.setFont (Theme::font (10.5f));
+        g.drawText ("AUDIO LOAD", load.removeFromTop (load.getHeight() / 2), juce::Justification::bottomLeft, false);
+        g.setColour (Theme::text);
+        g.setFont (Theme::monoFont (13.0f));
+        g.drawText (loadText, load, juce::Justification::topLeft, false);
+    }
 
     // The Fanan logo, right-aligned, as tall as the bar allows.
-    if (fananLogo.isValid())
+    if (fananLogo.isValid() && ! fananArea.isEmpty())
     {
         g.setImageResamplingQuality (juce::Graphics::highResamplingQuality);
         g.drawImageWithin (fananLogo, fananArea.getX(), fananArea.getY(), fananArea.getWidth(), fananArea.getHeight(),
@@ -199,45 +361,71 @@ void TopBar::paint (juce::Graphics& g)
     }
 }
 
-void TopBar::setUndoState (const juce::String& undoLabel, const juce::String& redoLabel)
-{
-    undoButton.setEnabled (undoLabel.isNotEmpty());
-    redoButton.setEnabled (redoLabel.isNotEmpty());
-    undoButton.setTooltip (undoLabel.isNotEmpty() ? "Undo: " + undoLabel + " (Ctrl+Z)" : juce::String ("Nothing to undo"));
-    redoButton.setTooltip (redoLabel.isNotEmpty() ? "Redo: " + redoLabel + " (Ctrl+Y)" : juce::String ("Nothing to redo"));
-}
-
 void TopBar::resized()
 {
     auto area = getLocalBounds().reduced (12, 8);
     area.removeFromBottom (1);
 
-    logoArea = area.removeFromLeft (172);
+    const auto optionsWidth = textWidth (menuFont(), optionsMenu.getButtonText()) + 22;
+    const auto logoWidth = fananLogo.isValid() ? juce::roundToInt ((float) area.getHeight() * (float) fananLogo.getWidth() / (float) fananLogo.getHeight()) : 0;
 
-    // The logo keeps its own shape (433 x 171), fitted to the bar's height.
-    const auto logoHeight = area.getHeight();
-    const auto logoWidth = fananLogo.isValid() ? juce::roundToInt ((float) logoHeight * (float) fananLogo.getWidth() / (float) fananLogo.getHeight()) : 0;
-    fananArea = area.removeFromRight (logoWidth);
-    area.removeFromRight (12);
-
-    fileMenu.setBounds (area.removeFromLeft (textWidth (menuFont(), fileMenu.getButtonText()) + 22));
-    area.removeFromLeft (12);
-    undoButton.setBounds (area.removeFromLeft (58));
-    area.removeFromLeft (4);
-    redoButton.setBounds (area.removeFromLeft (58));
-
-    // The tabs: centred in the window and as tall as the bar, never over the left group.
-    int total = 0;
-
-    for (auto* tab : tabs)
-        total += textWidth (tabFont(), tab->getButtonText()) + 40;
-
-    auto x = juce::jmax (redoButton.getRight() + 24, (getWidth() - total) / 2);
+    juce::Array<int> tabWidths;
+    int tabsWidth = 0;
 
     for (auto* tab : tabs)
     {
-        const auto width = textWidth (tabFont(), tab->getButtonText()) + 40;
-        tab->setBounds (x, 0, width, getHeight());
-        x += width;
+        tabWidths.add (textWidth (tabFont(), tab->getButtonText()) + 40);
+        tabsWidth += tabWidths.getLast();
+    }
+
+    // Always there: Options, the tabs, the meter and Audio / MIDI, with room for a short
+    // device pill. When the window is too narrow for the rest, the wordmark goes first,
+    // then the Fanan logo, then the audio load.
+    bool showWordmark = true, showLogo = logoWidth > 0, showLoad = true;
+
+    const auto needed = [&]
+    {
+        return (showWordmark ? wordmarkWidth : 0) + optionsWidth + 12 + minPillWidth + 24 + tabsWidth + 24
+             + meterWidth + (showLoad ? 8 + loadWidth : 0) + 14 + audioButtonWidth + (showLogo ? 16 + logoWidth : 0);
+    };
+
+    if (needed() > area.getWidth())   showWordmark = false;
+    if (needed() > area.getWidth())   showLogo = false;
+    if (needed() > area.getWidth())   showLoad = false;
+
+    wordmarkArea = showWordmark ? area.removeFromLeft (wordmarkWidth) : juce::Rectangle<int>();
+
+    // Right: the Fanan logo (433 x 171, fitted to the bar's height), Audio / MIDI, the load
+    // and the meter.
+    fananArea = showLogo ? area.removeFromRight (logoWidth) : juce::Rectangle<int>();
+
+    if (showLogo)
+        area.removeFromRight (16);
+
+    audioButton.setBounds (area.removeFromRight (audioButtonWidth));
+    area.removeFromRight (14);
+    loadArea = showLoad ? area.removeFromRight (loadWidth) : juce::Rectangle<int>();
+
+    if (showLoad)
+        area.removeFromRight (8);
+
+    meter.setBounds (area.removeFromRight (meterWidth).reduced (0, 1));
+    area.removeFromRight (24);
+
+    // Left: Options, then the device pill.
+    optionsMenu.setBounds (area.removeFromLeft (optionsWidth));
+    area.removeFromLeft (12);
+
+    // The tabs: centred in the window, moving right only as far as a short pill needs.
+    const auto earliest = area.getX() + minPillWidth + 24;
+    const auto latest = juce::jmax (earliest, area.getRight() - tabsWidth);
+    auto x = juce::jlimit (earliest, latest, (getWidth() - tabsWidth) / 2);
+
+    devicePill.setBounds (area.removeFromLeft (devicePill.getWidthFor (juce::jmin (maxPillWidth, x - 24 - area.getX()))).reduced (0, 1));
+
+    for (int i = 0; i < tabs.size(); ++i)
+    {
+        tabs[i]->setBounds (x, 0, tabWidths[i], getHeight());
+        x += tabWidths[i];
     }
 }

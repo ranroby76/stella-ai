@@ -1387,7 +1387,23 @@ PluginCanvas::Bake PluginCanvas::bake()
 
 void PluginCanvas::paint (juce::Graphics& g)
 {
+    // A grid over the whole tab, FlowStone-style: fine lines every 16 px, stronger every 64.
     g.fillAll (Theme::panel);
+
+    for (int step : { 16, 64 })
+    {
+        g.setColour (juce::Colours::white.withAlpha (step == 16 ? 0.028f : 0.05f));
+
+        for (int x = step; x < getWidth(); x += step)
+            g.drawVerticalLine (x, 0.0f, (float) getHeight());
+
+        for (int y = step; y < getHeight(); y += step)
+            g.drawHorizontalLine (y, 0.0f, (float) getWidth());
+    }
+
+    // Nothing built or opened yet: just the grid.
+    if (layout.widgets.empty() && layout.styles.empty())
+        return;
 
     const auto area = panelArea();
     const auto scale = area.getWidth() / (float) layout.width;
@@ -1416,13 +1432,6 @@ void PluginCanvas::paint (juce::Graphics& g)
 
         for (int i = 0; i < (int) layout.widgets.size(); ++i)
             drawWidget (g, i);
-
-        if (layout.widgets.empty())
-        {
-            g.setColour (captionColour.withAlpha (0.6f));
-            g.setFont (Theme::font (15.0f));
-            g.drawText ("The GUI appears here once the plugin is built.", plugin, juce::Justification::centred, false);
-        }
     }
 
     g.setColour (design ? Theme::accent.withAlpha (0.55f) : Theme::outline);

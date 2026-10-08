@@ -5,6 +5,8 @@
 #include "StellaLookAndFeel.h"
 #include "WasmCompiler.h"
 
+#include <juce_audio_utils/juce_audio_utils.h>   // the audio settings window
+
 namespace
 {
     /** A new project is empty until Stella AI writes its first modules and wires them. */
@@ -101,7 +103,9 @@ MainComponent::MainComponent (Settings& s)
 
     topBar.onNew = [this] { newProject(); };
     topBar.onOpen = [this] { openProject(); };
-    keyboardStrip.onDeviceClicked = [this] { showAudioSettings(); };
+    topBar.onAudioSettings = [this] { showAudioSettings(); };
+    topBar.takePeak = [this] (int channel) { return engine.takePeak (channel); };
+    topBar.audioLoad = [this] { return engine.getCpuLoad(); };
     workspace.onModeChanged = [this] (bool play) { setPlayMode (play); };
     topBar.onOpenRecent = [this] (const juce::File& file) { openProjectFile (file); };
     topBar.onRevealProject = [this] { if (project.isOpen()) project.getProjectFile().revealToUser(); };
@@ -115,8 +119,8 @@ MainComponent::MainComponent (Settings& s)
     cloud.onConflict = [this] (const juce::String& updated) { cloudConflict (updated); };
     topBar.recentProjects = [this] { return settings.getRecentProjects(); };
 
-    workspace.onNewRequested = [this] { newProject(); };
-    workspace.onOpenRequested = [this] { openProject(); };
+    chat.onNewPlugin = [this] { newProject(); };
+    chat.onOpenPlugin = [this] { openProject(); };
 
     engine.onDeviceChanged = [this] { updateDeviceSummary(); preview.deviceChanged(); };
 
@@ -150,8 +154,7 @@ MainComponent::MainComponent (Settings& s)
     };
 
     // Undo: snapshots around each request to Stella AI, and after each edit.
-    topBar.onUndo = [this] { undoOrRedo (false); };
-    topBar.onRedo = [this] { undoOrRedo (true); };
+    // No buttons on screen for now (they come back where Rob decides): Ctrl+Z / Ctrl+Y.
     ai.onTurnStarted = [this] (const juce::String&) { recordHistory ("Changes"); };
     ai.onTurnFinished = [this] (const juce::String& request)
     {
@@ -213,7 +216,6 @@ MainComponent::MainComponent (Settings& s)
 
     addAndMakeVisible (topBar);
     addAndMakeVisible (workspace);
-    addAndMakeVisible (keyboardStrip);
 
     workspace.showTab (Workspace::aiTab);
 
@@ -255,7 +257,6 @@ void MainComponent::resized()
     auto area = getLocalBounds();
 
     topBar.setBounds (area.removeFromTop (TopBar::height));
-    keyboardStrip.setBounds (area.removeFromBottom (KeyboardStrip::height));
     workspace.setBounds (area);
 }
 
@@ -294,7 +295,6 @@ void MainComponent::projectChanged()
             abSlot = 0;
             workspace.setAbSlot (0);
             pushPresets();
-            updateUndoButtons();
             refreshSchematic();
             buildPlugin();
         }
@@ -314,7 +314,6 @@ void MainComponent::projectChanged()
         presets.presets.clear();
         currentPreset = -1;
         pushPresets();
-        updateUndoButtons();
     }
 
     updateWindowTitle();
@@ -557,13 +556,8 @@ void MainComponent::chooseAbSlot (int slot)
 //==============================================================================
 void MainComponent::recordHistory (const juce::String& label)
 {
-    if (project.isOpen() && history.record (label))
-        updateUndoButtons();
-}
-
-void MainComponent::updateUndoButtons()
-{
-    topBar.setUndoState (history.getUndoLabel(), history.getRedoLabel());
+    if (project.isOpen())
+        history.record (label);
 }
 
 void MainComponent::undoOrRedo (bool redo)
@@ -572,7 +566,6 @@ void MainComponent::undoOrRedo (bool redo)
         return;   // never under Stella AI's feet
 
     const auto changed = redo ? history.redo() : history.undo();
-    updateUndoButtons();
 
     if (! changed.any())
         return;
@@ -1102,7 +1095,7 @@ void MainComponent::updateWindowTitle()
 
 void MainComponent::updateDeviceSummary()
 {
-    keyboardStrip.setDevice (engine.describeDeviceLines(), engine.describeDevice());
+    topBar.setDevice (engine.describeDeviceLines(), engine.describeDevice());
 }
 
 void MainComponent::setPlayMode (bool shouldPlay)

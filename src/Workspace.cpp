@@ -11,13 +11,6 @@ namespace
 //==============================================================================
 Workspace::PluginView::PluginView()
 {
-    newButton.setButtonText (juce::String::fromUTF8 ("New plugin\xe2\x80\xa6"));
-    openButton.setButtonText (juce::String::fromUTF8 ("Open\xe2\x80\xa6"));
-
-    newButton.setColour (juce::TextButton::buttonColourId, Theme::accent);
-    newButton.onClick = [this] { if (onNew != nullptr) onNew(); };
-    openButton.onClick = [this] { if (onOpen != nullptr) onOpen(); };
-
     // Edit and Play: two tabs, one always on.
     for (auto* tab : { &editTab, &playTab })
     {
@@ -48,9 +41,6 @@ Workspace::PluginView::PluginView()
 
     autoButton.setTooltip ("Replace the GUI with a plain automatic one: a group per module, a control per parameter");
     autoButton.onClick = [this] { if (onAutoLayout != nullptr) onAutoLayout(); };
-
-    addAndMakeVisible (newButton);
-    addAndMakeVisible (openButton);
 
     for (auto* c : std::initializer_list<juce::Component*> { &editTab, &playTab, &rebuildButton, &logButton, &exportButton })
         addChildComponent (c);
@@ -133,13 +123,10 @@ void Workspace::PluginView::setProject (const juce::String& name, const juce::St
 
     const bool hasProject = projectName.isNotEmpty();
 
-    newButton.setVisible (! hasProject);
-    openButton.setVisible (! hasProject);
-
     for (auto* c : std::initializer_list<juce::Component*> { &editTab, &playTab, &rebuildButton, &logButton, &exportButton })
         c->setVisible (hasProject);
 
-    canvas.setVisible (hasProject);
+    canvas.setVisible (true);   // the grid shows even with nothing on it
     setPlayMode (playMode);   // and the row that goes with the tab
 
     resized();
@@ -209,20 +196,9 @@ void Workspace::PluginView::paint (juce::Graphics& g)
 {
     g.fillAll (Theme::panel);
 
+    // No project: the canvas's grid fills the whole tab.
     if (projectName.isEmpty())
-    {
-        auto area = getLocalBounds().withSizeKeepingCentre (440, 150);
-
-        g.setColour (Theme::text);
-        g.setFont (Theme::font (24.0f, true));
-        g.drawText ("Build a plugin by describing it", area.removeFromTop (34), juce::Justification::centred, false);
-
-        g.setColour (Theme::muted);
-        g.setFont (Theme::font (15.0f));
-        g.drawText ("Describe it in Build with AI, or start or open one here.", area.removeFromTop (26),
-                    juce::Justification::centred, false);
         return;
-    }
 
     // The build bar: a light for the state, and what's happening.
     auto bar = statusArea;
@@ -261,10 +237,6 @@ void Workspace::PluginView::paint (juce::Graphics& g)
 
 void Workspace::PluginView::resized()
 {
-    auto buttons = getLocalBounds().withSizeKeepingCentre (300, 40).translated (0, 64);
-    newButton.setBounds (buttons.removeFromLeft (150).reduced (4, 0));
-    openButton.setBounds (buttons.reduced (4, 0));
-
     // The bar: the Edit and Play tabs, the build's state, then Export, Rebuild and Log.
     auto bar = getLocalBounds().removeFromTop (barHeight).reduced (16, 9);
     editTab.setBounds (bar.removeFromLeft (84));
@@ -303,7 +275,8 @@ void Workspace::PluginView::resized()
     bButton.setBounds (presets.removeFromRight (36));
     aButton.setBounds (presets.removeFromRight (36));
 
-    canvas.setBounds (getLocalBounds().withTrimmedTop (barHeight + rowHeight));
+    // The grid: under the bars with a project, the whole tab without one.
+    canvas.setBounds (projectName.isNotEmpty() ? getLocalBounds().withTrimmedTop (barHeight + rowHeight) : getLocalBounds());
 }
 
 //==============================================================================
@@ -339,8 +312,6 @@ void Workspace::HintView::paint (juce::Graphics& g)
 //==============================================================================
 Workspace::Workspace()
 {
-    pluginView.onNew        = [this] { if (onNewRequested != nullptr) onNewRequested(); };
-    pluginView.onOpen       = [this] { if (onOpenRequested != nullptr) onOpenRequested(); };
     pluginView.onBuild      = [this] { if (onBuildRequested != nullptr) onBuildRequested(); };
     pluginView.onShowLog    = [this] { if (onShowLogRequested != nullptr) onShowLogRequested(); };
     pluginView.onExport     = [this] { if (onExportRequested != nullptr) onExportRequested(); };

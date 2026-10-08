@@ -15,9 +15,10 @@
     The window below the top bar, in four tabs (picked in the top bar):
 
         Build with AI  the conversation with Stella AI (the main window's chat panel)
-        Edit UI        the plugin, playing live, in two tabs of its own: Edit, where its
-                       GUI is reshaped, and Play, where the GUI is locked and plays like
-                       the finished plugin
+        Edit UI        the plugin, playing live, on a grid, in two tabs of its own: Edit,
+                       where its GUI is reshaped, and Play, where the GUI is locked and
+                       plays like the finished plugin. Empty (just the grid) until Stella
+                       AI builds a plugin or one is opened
         Schematic      its DSP blocks and wires; click a block to instruct the AI
         Knob Studio    KnobMaker's tools, for shaping a knob or a panel
 */
@@ -68,8 +69,6 @@ public:
     /** For Export: the GUI baked into images. */
     PluginCanvas::Bake bakeGui()                  { return pluginView.canvas.bake(); }
 
-    std::function<void()> onNewRequested;
-    std::function<void()> onOpenRequested;
     std::function<void()> onBuildRequested;
     std::function<void()> onShowLogRequested;
     std::function<void()> onExportRequested;
@@ -106,7 +105,7 @@ private:
         void setPresets (const juce::StringArray& names, int selected);
         void setAbSlot (int slot);
 
-        std::function<void()> onNew, onOpen, onBuild, onShowLog, onExport, onAutoLayout, onSavePreset, onAbCopy;
+        std::function<void()> onBuild, onShowLog, onExport, onAutoLayout, onSavePreset, onAbCopy;
         std::function<void (int)> onPresetChosen, onDeletePreset, onAbChosen;
         std::function<void (bool playMode)> onMode;
 
@@ -120,8 +119,6 @@ private:
     private:
         void showAddMenu();
         void chooseMode (bool play);
-
-        juce::TextButton newButton, openButton;
 
         // Two tabs: Edit (reshape the panel) and Play (the panel locked, its controls live).
         juce::TextButton editTab { "Edit" }, playTab { "Play" };

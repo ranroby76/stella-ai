@@ -6,7 +6,7 @@
 namespace
 {
     constexpr int columnWidth      = 820;  // the chat sits in one centred column
-    constexpr int headerHeight     = 92;
+    constexpr int headerHeight     = 100;
     constexpr int accountLabelGap  = 58;   // room for the word "Account"
     constexpr int pillWidth        = 150;
     constexpr int warningHeight    = 110;
@@ -126,6 +126,17 @@ ChatPanel::ChatPanel()
     addChildComponent (buyPill);
     addAndMakeVisible (accountPill);
     addAndMakeVisible (accountBox);
+
+    // Everything starts here: a new plugin, or one to open.
+    newPluginButton.setButtonText (juce::String::fromUTF8 ("New plugin\xe2\x80\xa6"));
+    newPluginButton.setColour (juce::TextButton::buttonColourId, Theme::accent);
+    newPluginButton.setTooltip ("Start a new plugin");
+    newPluginButton.onClick = [this] { if (onNewPlugin != nullptr) onNewPlugin(); };
+    openButton.setButtonText (juce::String::fromUTF8 ("Open\xe2\x80\xa6"));
+    openButton.setTooltip ("Open a plugin you're working on");
+    openButton.onClick = [this] { if (onOpenPlugin != nullptr) onOpenPlugin(); };
+    addAndMakeVisible (newPluginButton);
+    addAndMakeVisible (openButton);
 
     rebuildTranscript ({});
     setAccount ({});
@@ -734,7 +745,7 @@ void ChatPanel::paint (juce::Graphics& g)
 
         juce::GlyphArrangement glyphs;
         glyphs.addLineOfText (font, text, 0.0f, 0.0f);
-        const auto textWidth = juce::jmin ((float) titleRow.getWidth() - 100.0f,
+        const auto textWidth = juce::jmin ((float) (titleRow.getRight() - openButton.getRight()) - 40.0f,
                                            glyphs.getBoundingBox (0, glyphs.getNumGlyphs(), true).getWidth() + 2.0f);
 
         auto corner = titleRow.toFloat();
@@ -812,8 +823,14 @@ void ChatPanel::resized()
 
     auto header = area.removeFromTop (headerHeight);
     header.removeFromTop (14);
-    titleRow = header.removeFromTop (22);
-    header.removeFromTop (12);
+    titleRow = header.removeFromTop (30);
+    header.removeFromTop (10);
+
+    // New plugin and Open, beside the title.
+    auto starts = titleRow.withTrimmedLeft (juce::GlyphArrangement::getStringWidthInt (Theme::font (16.0f, true), "Stella AI") + 20);
+    newPluginButton.setBounds (starts.removeFromLeft (118));
+    starts.removeFromLeft (8);
+    openButton.setBounds (starts.removeFromLeft (84));
 
     // The account box, with Sign in / Sign out and Buy credits beside it.
     auto row = header.removeFromTop (32);
@@ -856,13 +873,13 @@ void ChatPanel::resized()
 
         if (chipRow > 0)
         {
-            auto row = bottom.removeFromTop (24);
+            auto chipLine = bottom.removeFromTop (24);
 
             for (auto* chip : chips)
             {
                 const auto width = juce::jmin (170, juce::GlyphArrangement::getStringWidthInt (Theme::font (13.0f), chip->getButtonText()) + 24);
-                chip->setBounds (row.removeFromLeft (juce::jmin (width, row.getWidth())));
-                row.removeFromLeft (6);
+                chip->setBounds (chipLine.removeFromLeft (juce::jmin (width, chipLine.getWidth())));
+                chipLine.removeFromLeft (6);
             }
 
             bottom.removeFromTop (6);

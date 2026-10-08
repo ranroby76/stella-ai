@@ -7,7 +7,6 @@
 #include "AudioEngine.h"
 #include "ChatPanel.h"
 #include "FananServer.h"
-#include "KeyboardStrip.h"
 #include "LivePreview.h"
 #include "Project.h"
 #include "CloudProjects.h"
@@ -24,9 +23,8 @@
 /**
     The studio window's content:
 
-        top bar
-        Stella AI chat | workspace (Plugin / Schematic / Knob Studio)
-        keyboard strip
+        top bar (Options menu, device details, the four tabs, audio load, Audio / MIDI)
+        the open tab (Build with AI / Edit UI / Schematic / Knob Studio)
 
     Owns the audio engine, the link to Fanan's server (Stella AI and credits) and the
     open project.
@@ -64,7 +62,6 @@ private:
     bool keyPressed (const juce::KeyPress& key) override;
     void undoOrRedo (bool redo);
     void recordHistory (const juce::String& label);
-    void updateUndoButtons();
     void pushParameters();
     void pushPresets();
     std::map<juce::String, float> currentValues() const;
@@ -97,7 +94,6 @@ private:
     TopBar topBar;
     ChatPanel chat;
     Workspace workspace;
-    KeyboardStrip keyboardStrip { engine };
 
 
     std::unique_ptr<juce::DocumentWindow> audioSettingsWindow, logWindow;

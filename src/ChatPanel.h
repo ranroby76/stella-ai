@@ -12,11 +12,12 @@
 
 //==============================================================================
 /**
-    The Build with AI tab: the conversation with Stella AI, in one centred column.
+    The Build with AI tab, where everything starts: the conversation with Stella AI, in one
+    centred column.
 
-    Header: the title on the left and the connection light with the credits on the right;
-    under them the account box, with two yellow pill buttons beside it: Sign in / Sign out,
-    and Buy credits (only once signed in).
+    Header: the title with New plugin and Open beside it, and the connection light with the
+    credits on the right; under them the account box, with two yellow pill buttons beside
+    it: Sign in / Sign out, and Buy credits (only once signed in).
 
     Signed out, the account box takes an email (passed to the site's sign-in). When the
     mouse moves into it, it suggests the email last signed in with; a click fills it in.
@@ -57,6 +58,8 @@ public:
     std::function<void()> onRetry;
     std::function<void (const juce::String& email)> onSignIn;   // the email typed, if any
     std::function<void()> onSignOut;
+    std::function<void()> onNewPlugin;
+    std::function<void()> onOpenPlugin;
     std::function<void()> onStop;      // Stella AI is working: Send turns into Stop
 
     void paint (juce::Graphics&) override;
@@ -126,6 +129,7 @@ private:
     juce::Rectangle<int> inputBox;
     bool dragOver = false;
     Pill accountPill { "Sign in" }, buyPill { "Buy credits" };
+    juce::TextButton newPluginButton, openButton;
     juce::TextEditor accountBox;
 
     Account account;
