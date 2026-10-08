@@ -1,0 +1,17 @@
+{
+  "name": "Selector",
+  "category": "Controls",
+  "order": 31,
+  "icon": "selector",
+  "description": "Picks one of a few choices, like a waveform.",
+  "widget": {
+    "type": "selector",
+    "w": 180,
+    "h": 48,
+    "options": [
+      "One",
+      "Two",
+      "Three"
+    ]
+  }
+}

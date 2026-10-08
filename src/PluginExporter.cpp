@@ -184,7 +184,8 @@ PluginExporter::Gui PluginExporter::prepareGui (const GuiLayout& layout, const P
             case GuiWidget::Type::preset:    kind = "preset"; break;
             case GuiWidget::Type::label:
             case GuiWidget::Type::group:
-            case GuiWidget::Type::shape:     break;   // in the background
+            case GuiWidget::Type::shape:
+            case GuiWidget::Type::image:     break;   // in the background
         }
 
         if (kind == nullptr || area.isEmpty())

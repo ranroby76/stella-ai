@@ -1,0 +1,14 @@
+{
+  "name": "Scope",
+  "category": "Displays",
+  "order": 120,
+  "icon": "scope",
+  "description": "Draws the sound's waveform as it plays.",
+  "widget": {
+    "type": "scope",
+    "w": 220,
+    "h": 120,
+    "source": "plugin.out L",
+    "label": "Scope"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "Envelope curve",
+  "category": "Displays",
+  "order": 140,
+  "icon": "envelope",
+  "description": "Draws the attack, decay, sustain and release.",
+  "widget": {
+    "type": "envelope",
+    "w": 220,
+    "h": 120,
+    "label": "Envelope"
+  }
+}

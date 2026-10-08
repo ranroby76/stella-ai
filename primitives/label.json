@@ -1,0 +1,13 @@
+{
+  "name": "Text",
+  "category": "Pictures & text",
+  "order": 240,
+  "icon": "label",
+  "description": "A line of text.",
+  "widget": {
+    "type": "label",
+    "w": 200,
+    "h": 28,
+    "text": "Text"
+  }
+}

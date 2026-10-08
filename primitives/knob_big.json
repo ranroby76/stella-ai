@@ -1,0 +1,11 @@
+{
+  "name": "Big knob",
+  "category": "Controls",
+  "order": 12,
+  "icon": "knob_big",
+  "description": "A big knob, for the main control.",
+  "widget": {
+    "type": "knob",
+    "size": 96
+  }
+}

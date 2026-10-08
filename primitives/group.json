@@ -1,0 +1,13 @@
+{
+  "name": "Frame",
+  "category": "Pictures & text",
+  "order": 250,
+  "icon": "group",
+  "description": "A titled frame around related controls.",
+  "widget": {
+    "type": "group",
+    "w": 260,
+    "h": 170,
+    "text": "SECTION"
+  }
+}

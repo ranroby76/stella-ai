@@ -208,7 +208,7 @@ juce::Result StellaAi::attach (const juce::File& file, juce::Array<juce::var>& b
     return juce::Result::ok();
 }
 
-void StellaAi::send (const juce::String& text, const juce::Array<juce::File>& files)
+void StellaAi::send (const juce::String& text, const juce::Array<juce::File>& files, const juce::String& shownText)
 {
     auto request = text.trim();
 
@@ -243,8 +243,9 @@ void StellaAi::send (const juce::String& text, const juce::Array<juce::File>& fi
     if (request.isEmpty())
         request = "Have a look at the attached file" + juce::String (attached.size() > 1 ? "s." : ".");
 
-    addEntry (Entry::Kind::user, request + (attached.isEmpty() ? juce::String()
-                                                               : juce::String::fromUTF8 ("\n\xf0\x9f\x93\x8e ") + attached.joinIntoString (", ")));
+    addEntry (Entry::Kind::user, (shownText.trim().isNotEmpty() ? shownText.trim() : request)
+                                     + (attached.isEmpty() ? juce::String()
+                                                           : juce::String::fromUTF8 ("\n\xf0\x9f\x93\x8e ") + attached.joinIntoString (", ")));
 
     if (! problems.isEmpty())
         addEntry (Entry::Kind::notice, "Not attached: " + problems.joinIntoString (", ") + ".");
@@ -267,10 +268,10 @@ void StellaAi::send (const juce::String& text, const juce::Array<juce::File>& fi
         return;
     }
 
-    currentRequest = request;
+    currentRequest = shownText.trim().isNotEmpty() ? shownText.trim() : request;
 
     if (onTurnStarted != nullptr)
-        onTurnStarted (request);
+        onTurnStarted (currentRequest);
 
     trimHistory();
     turnStart = messages.size();

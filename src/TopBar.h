@@ -10,10 +10,10 @@
 /**
     The strip across the top.
 
-        left    the Options menu, and the audio device's details in a pill
+        left    the Options menu, and the audio device's details in a pill (a click opens
+                the audio and MIDI settings)
         middle  the studio's four tabs: Build with AI, Edit UI, Schematic, Knob Studio
-        right   the output meter with the audio load, the Audio / MIDI settings button,
-                and the Fanan logo
+        right   the output meter with the audio load, and the Fanan logo
 
     The open project's name is in the window's title bar, as in Windows apps.
 */
@@ -49,10 +49,6 @@ public:
     std::function<void()> onRevealProject;
     std::function<void()> onCloseProject;
     std::function<void (const juce::File& projectFile)> onOpenRecent;
-    std::function<void()> onSaveToCloud;
-    std::function<void()> onOpenFromCloud;
-    std::function<juce::String()> cloudStatus;      // shown beside "Save to the cloud now"
-    std::function<bool()> cloudAvailable;           // signed in
 
     /** Asked for each time the Options menu opens: recent project files, newest first. */
     std::function<juce::StringArray()> recentProjects;
@@ -127,7 +123,6 @@ private:
     DevicePill devicePill;
     juce::OwnedArray<TabButton> tabs;
     Meter meter;
-    juce::TextButton audioButton { "Audio / MIDI" };
     juce::String loadText { "0%" };
 
     bool hasProject = false;

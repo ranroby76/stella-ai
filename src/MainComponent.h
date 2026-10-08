@@ -9,7 +9,6 @@
 #include "FananServer.h"
 #include "LivePreview.h"
 #include "Project.h"
-#include "CloudProjects.h"
 #include "History.h"
 #include "PluginExporter.h"
 #include "PresetBank.h"
@@ -52,11 +51,13 @@ private:
     void saveLayout();
     void saveLayoutSoon();
     void autoLayout();
+    void askAiAboutGui (int widgetIndex, const juce::String& instruction);
+    void sendFromChat (const juce::String& request, const juce::Array<juce::File>& files);
+    juce::String lastAnswer() const;
     void buildPlugin();
     void showBuildLog();
     void showLog (const juce::String& title, const juce::String& text);
     void exportPlugin();
-    void openFromCloud();
 
     // Undo, presets, A/B
     bool keyPressed (const juce::KeyPress& key) override;
@@ -70,8 +71,6 @@ private:
     void savePreset();
     void deletePreset (int index);
     void chooseAbSlot (int slot);
-    void cloudConflict (const juce::String& cloudUpdated);
-    void downloadFromCloud (const CloudProjects::Entry& entry, const juce::File& folder);
     void exportFinished (const PluginExporter::Result& result);
     void buyCredits();
     void signIn (bool thenBuy, const juce::String& emailHint);
@@ -88,7 +87,6 @@ private:
     FananServer server { FananServer::loadSettings() };
     Project project;
     ProjectTools projectTools { project, preview };
-    CloudProjects cloud { server, project };
     StellaAi ai { server, projectTools };
 
     TopBar topBar;
@@ -98,7 +96,7 @@ private:
 
     std::unique_ptr<juce::DocumentWindow> audioSettingsWindow, logWindow;
     std::unique_ptr<juce::FileChooser> chooser;
-    std::unique_ptr<juce::AlertWindow> newProjectDialog, signOutDialog, autoLayoutDialog, cloudDialog, presetDialog;
+    std::unique_ptr<juce::AlertWindow> newProjectDialog, signOutDialog, autoLayoutDialog, presetDialog;
 
     History history;
     PresetBank presets;
@@ -113,6 +111,7 @@ private:
     juce::String builtProjectId;     // the project the preview was built for
     int shownParamsVersion = -1;
     bool layoutSaveScheduled = false;
+    bool guiRequestPending = false;     // Stella AI is answering an Edit UI menu's request
     bool exporting = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainComponent)

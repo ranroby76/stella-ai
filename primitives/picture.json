@@ -1,0 +1,13 @@
+{
+  "name": "Picture",
+  "category": "Pictures & text",
+  "order": 220,
+  "icon": "picture",
+  "description": "A picture anywhere on the window: a logo, a panel, a texture.",
+  "widget": {
+    "type": "image",
+    "w": 160,
+    "h": 120,
+    "mode": "fit"
+  }
+}

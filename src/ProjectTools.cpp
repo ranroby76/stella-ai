@@ -7,6 +7,8 @@
 
 #include "StellaRuntimeData.h"
 
+#include <map>
+
 namespace
 {
     constexpr int maxFileBytes = 200 * 1024;
@@ -56,6 +58,23 @@ namespace
     int countLines (const juce::String& text)
     {
         return juce::StringArray::fromLines (text).size();
+    }
+
+    /** A picture's size in pixels, read once per version of the file. */
+    juce::Point<int> pictureSize (const juce::File& file)
+    {
+        static std::map<juce::String, std::pair<juce::Time, juce::Point<int>>> known;
+
+        const auto modified = file.getLastModificationTime();
+        auto& entry = known[file.getFullPathName()];
+
+        if (entry.first != modified)
+        {
+            const auto image = juce::ImageFileFormat::loadFrom (file);
+            entry = { modified, { image.getWidth(), image.getHeight() } };
+        }
+
+        return entry.second;
     }
 }
 
@@ -199,9 +218,26 @@ juce::String ProjectTools::describeProject() const
     GuiLayout layout;
 
     if (GuiLayout::load (layoutFile, layout).wasOk())
-        text << "\nGUI: gui/layout.json, " << layout.width << " x " << layout.height << ", " << (int) layout.widgets.size() << " elements.\n";
+        text << "\nGUI: gui/layout.json, " << layout.width << " x " << layout.height << ", " << (int) layout.widgets.size() << " elements"
+             << (layout.backgroundImage.isNotEmpty() ? ", background picture " + layout.backgroundImage : juce::String()) << ".\n";
     else
         text << "\nGUI: none yet (the studio makes a plain automatic one after the first build).\n";
+
+    // The pictures the user added, for backgrounds and picture elements.
+    auto pictures = project.getGuiFolder().getChildFile (GuiLayout::imagesFolder)
+                        .findChildFiles (juce::File::findFiles, false, GuiLayout::pictureFiles());
+    pictures.sort();
+
+    if (! pictures.isEmpty())
+    {
+        text << "\nPictures in gui/images (use them by file name):\n";
+
+        for (const auto& f : pictures)
+        {
+            const auto size = pictureSize (f);
+            text << "- " << f.getFileName() << " (" << size.x << " x " << size.y << ")\n";
+        }
+    }
 
     PresetBank bank;
     bank.load (project.getFolder());
@@ -491,12 +527,25 @@ void ProjectTools::run (const juce::String& name, const juce::var& input, Done d
                 unbound.addIfNotAlreadyThere (w.param);
         }
 
+        // Pictures must be files the user added.
+        juce::StringArray missingPictures;
+        const auto pictures = project.getGuiFolder().getChildFile (GuiLayout::imagesFolder);
+
+        if (layout.backgroundImage.isNotEmpty() && ! pictures.getChildFile (layout.backgroundImage).existsAsFile())
+            missingPictures.add (layout.backgroundImage);
+
+        for (const auto& w : layout.widgets)
+            if (w.type == GuiWidget::Type::image && w.image.isNotEmpty() && ! pictures.getChildFile (w.image).existsAsFile())
+                missingPictures.addIfNotAlreadyThere (w.image);
+
         if (onLayoutChanged != nullptr)
             onLayoutChanged();
 
         done ("The GUI is showing: " + juce::String ((int) layout.widgets.size()) + " elements, " + juce::String (layout.width)
                   + " x " + juce::String (layout.height) + "."
-                  + (unbound.isEmpty() ? juce::String() : "\nThese parameter ids don't exist in the plugin (fix them): " + unbound.joinIntoString (", ")),
+                  + (unbound.isEmpty() ? juce::String() : "\nThese parameter ids don't exist in the plugin (fix them): " + unbound.joinIntoString (", "))
+                  + (missingPictures.isEmpty() ? juce::String()
+                                               : "\nThese pictures aren't in gui/images (use only the listed ones): " + missingPictures.joinIntoString (", ")),
               false);
         return;
     }

@@ -67,6 +67,7 @@ juce::String GuiLayout::typeName (GuiWidget::Type type)
         case GuiWidget::Type::xy:        return "xy";
         case GuiWidget::Type::shape:     return "shape";
         case GuiWidget::Type::preset:    return "preset";
+        case GuiWidget::Type::image:     return "image";
     }
 
     return "knob";
@@ -89,6 +90,7 @@ GuiWidget::Type GuiLayout::typeFromName (const juce::String& name)
     if (n == "xy" || n == "pad" || n == "xypad")     return GuiWidget::Type::xy;
     if (n == "shape" || n == "path" || n == "drawing") return GuiWidget::Type::shape;
     if (n == "preset" || n == "presets" || n == "program") return GuiWidget::Type::preset;
+    if (n == "image" || n == "picture" || n == "bitmap" || n == "photo") return GuiWidget::Type::image;
     return GuiWidget::Type::knob;
 }
 
@@ -148,76 +150,24 @@ GuiLayout GuiLayout::fromVar (const juce::var& json)
 {
     GuiLayout layout;
 
-    layout.width = juce::jlimit (240, 2400, intOf (json, "width", layout.width));
-    layout.height = juce::jlimit (160, 1600, intOf (json, "height", layout.height));
+    layout.width = juce::jlimit (minWidth, maxWidth, intOf (json, "width", layout.width));
+    layout.height = juce::jlimit (minHeight, maxHeight, intOf (json, "height", layout.height));
 
     const auto background = json.getProperty ("background", {});
     layout.backgroundTop = colourFromString (background.getProperty ("top", {}).toString(), layout.backgroundTop);
     layout.backgroundBottom = colourFromString (background.getProperty ("bottom", {}).toString(), layout.backgroundBottom);
+    layout.backgroundImage = background.getProperty ("image", {}).toString().trim();
+
+    if (const auto mode = background.getProperty ("mode", {}).toString().trim().toLowerCase(); pictureModes().contains (mode))
+        layout.backgroundMode = mode;
 
     if (auto* stylesObject = json.getProperty ("styles", {}).getDynamicObject())
         for (const auto& entry : stylesObject->getProperties())
             layout.styles[entry.name.toString()] = styleFromVar (entry.value);
 
     if (const auto* list = json.getProperty ("widgets", {}).getArray())
-    {
         for (const auto& item : *list)
-        {
-            GuiWidget w;
-            w.type = typeFromName (item.getProperty ("type", {}).toString());
-            w.param = item.getProperty ("param", {}).toString().trim();
-            w.label = item.getProperty (w.type == GuiWidget::Type::label || w.type == GuiWidget::Type::group ? "text" : "label", {}).toString();
-
-            if (w.label.isEmpty())
-                w.label = item.getProperty ("label", item.getProperty ("text", {})).toString();
-
-            w.style = item.getProperty ("style", {}).toString();
-            w.colour = colourFromString (item.getProperty ("color", item.getProperty ("colour", {})).toString(), juce::Colours::transparentBlack);
-            w.fontSize = (float) (double) item.getProperty ("size", 0.0);
-            w.bold = (bool) item.getProperty ("bold", false);
-            w.vertical = item.getProperty ("orientation", "vertical").toString() != "horizontal";
-
-            if (const auto* options = item.getProperty ("options", {}).getArray())
-                for (const auto& option : *options)
-                    w.options.add (option.toString());
-
-            w.source = item.getProperty ("source", {}).toString().trim();
-            w.mode = item.getProperty ("mode", {}).toString().trim();
-            w.threshold = (float) (double) item.getProperty ("threshold", 0.5);
-            w.path = item.getProperty ("path", {}).toString();
-            w.stroke = colourFromString (item.getProperty ("stroke", {}).toString(), juce::Colours::transparentBlack);
-            w.strokeWidth = (float) (double) item.getProperty ("strokeWidth", 0.0);
-
-            if (auto* roles = item.getProperty ("params", {}).getDynamicObject())
-                for (const auto& role : roles->getProperties())
-                    w.roles[role.name.toString()] = role.value.toString();
-
-            const auto x = intOf (item, "x", 0), y = intOf (item, "y", 0);
-
-            if (w.type == GuiWidget::Type::knob)
-            {
-                // A knob is given by its diameter; its caption sits under it.
-                const auto size = juce::jlimit (16, 400, intOf (item, "size", intOf (item, "w", 56)));
-                w.bounds = { x, y, size, size + captionHeight };
-                w.fontSize = 0.0f;
-            }
-            else
-            {
-                if (w.type != GuiWidget::Type::label && w.type != GuiWidget::Type::group)
-                    w.fontSize = 0.0f;
-
-                const auto t = w.type;
-                const auto defaultW = t == GuiWidget::Type::slider ? 32 : t == GuiWidget::Type::toggle ? 48 : t == GuiWidget::Type::meter ? 18
-                                    : t == GuiWidget::Type::lamp ? 30 : t == GuiWidget::Type::xy ? 160 : t == GuiWidget::Type::label ? 160 : 200;
-                const auto defaultH = t == GuiWidget::Type::slider ? 140 : t == GuiWidget::Type::toggle ? 48 : t == GuiWidget::Type::meter ? 140
-                                    : t == GuiWidget::Type::lamp ? 44 : t == GuiWidget::Type::xy ? 180 : t == GuiWidget::Type::label ? 28
-                                    : t == GuiWidget::Type::preset ? 28 : t == GuiWidget::Type::group ? 160 : 120;
-                w.bounds = { x, y, juce::jlimit (8, 2400, intOf (item, "w", defaultW)), juce::jlimit (8, 1600, intOf (item, "h", defaultH)) };
-            }
-
-            layout.widgets.push_back (w);
-        }
-    }
+            layout.widgets.push_back (widgetFromVar (item));
 
     return layout;
 }
@@ -232,6 +182,13 @@ juce::var GuiLayout::toVar() const
     auto background = object();
     set (background, "top", colourToString (backgroundTop));
     set (background, "bottom", colourToString (backgroundBottom));
+
+    if (backgroundImage.isNotEmpty())
+    {
+        set (background, "image", backgroundImage);
+        set (background, "mode", backgroundMode);
+    }
+
     set (json, "background", background);
 
     auto stylesJson = object();
@@ -244,75 +201,175 @@ juce::var GuiLayout::toVar() const
     juce::Array<juce::var> list;
 
     for (const auto& w : widgets)
-    {
-        auto item = object();
-        set (item, "type", typeName (w.type));
-        set (item, "x", w.bounds.getX());
-        set (item, "y", w.bounds.getY());
-
-        if (w.type == GuiWidget::Type::knob)
-        {
-            set (item, "size", w.bounds.getWidth());
-        }
-        else
-        {
-            set (item, "w", w.bounds.getWidth());
-            set (item, "h", w.bounds.getHeight());
-        }
-
-        if (w.param.isNotEmpty())
-            set (item, "param", w.param);
-
-        if (w.label.isNotEmpty())
-            set (item, w.type == GuiWidget::Type::label || w.type == GuiWidget::Type::group ? "text" : "label", w.label);
-
-        if (w.style.isNotEmpty())
-            set (item, "style", w.style);
-
-        if (! w.colour.isTransparent())
-            set (item, "color", colourToString (w.colour));
-
-        if (w.fontSize > 0.0f && (w.type == GuiWidget::Type::label || w.type == GuiWidget::Type::group))
-            set (item, "size", w.fontSize);
-
-        if (w.bold)
-            set (item, "bold", true);
-
-        if (w.type == GuiWidget::Type::slider && ! w.vertical)
-            set (item, "orientation", "horizontal");
-
-        if (w.type == GuiWidget::Type::selector)
-        {
-            juce::Array<juce::var> options;
-
-            for (const auto& o : w.options)
-                options.add (o);
-
-            set (item, "options", options);
-        }
-
-        if (w.source.isNotEmpty())       set (item, "source", w.source);
-        if (w.mode.isNotEmpty())         set (item, "mode", w.mode);
-        if (w.type == GuiWidget::Type::lamp) set (item, "threshold", w.threshold);
-        if (w.path.isNotEmpty())         set (item, "path", w.path);
-        if (! w.stroke.isTransparent())  set (item, "stroke", colourToString (w.stroke));
-        if (w.strokeWidth > 0.0f)        set (item, "strokeWidth", w.strokeWidth);
-
-        if (! w.roles.empty())
-        {
-            auto roles = object();
-
-            for (const auto& [role, id] : w.roles)
-                set (roles, role, id);
-
-            set (item, "params", roles);
-        }
-
-        list.add (item);
-    }
+        list.add (widgetToVar (w));
 
     set (json, "widgets", list);
     return json;
+}
+
+GuiWidget GuiLayout::widgetFromVar (const juce::var& item)
+{
+    GuiWidget w;
+    w.type = typeFromName (item.getProperty ("type", {}).toString());
+    w.param = item.getProperty ("param", {}).toString().trim();
+    w.label = item.getProperty (w.type == GuiWidget::Type::label || w.type == GuiWidget::Type::group ? "text" : "label", {}).toString();
+
+    if (w.label.isEmpty())
+        w.label = item.getProperty ("label", item.getProperty ("text", {})).toString();
+
+    w.style = item.getProperty ("style", {}).toString();
+    w.colour = colourFromString (item.getProperty ("color", item.getProperty ("colour", {})).toString(), juce::Colours::transparentBlack);
+    w.fontSize = (float) (double) item.getProperty ("size", 0.0);
+    w.bold = (bool) item.getProperty ("bold", false);
+    w.vertical = item.getProperty ("orientation", "vertical").toString() != "horizontal";
+
+    if (const auto* options = item.getProperty ("options", {}).getArray())
+        for (const auto& option : *options)
+            w.options.add (option.toString());
+
+    w.source = item.getProperty ("source", {}).toString().trim();
+    w.mode = item.getProperty ("mode", {}).toString().trim();
+    w.threshold = (float) (double) item.getProperty ("threshold", 0.5);
+    w.path = item.getProperty ("path", {}).toString();
+    w.stroke = colourFromString (item.getProperty ("stroke", {}).toString(), juce::Colours::transparentBlack);
+    w.strokeWidth = (float) (double) item.getProperty ("strokeWidth", 0.0);
+    w.image = item.getProperty ("image", {}).toString().trim();
+
+    if (auto* roles = item.getProperty ("params", {}).getDynamicObject())
+        for (const auto& role : roles->getProperties())
+            w.roles[role.name.toString()] = role.value.toString();
+
+    const auto x = intOf (item, "x", 0), y = intOf (item, "y", 0);
+
+    if (w.type == GuiWidget::Type::knob)
+    {
+        // A knob is given by its diameter; its caption sits under it.
+        const auto size = juce::jlimit (16, 400, intOf (item, "size", intOf (item, "w", 56)));
+        w.bounds = { x, y, size, size + captionHeight };
+        w.fontSize = 0.0f;
+    }
+    else
+    {
+        if (w.type != GuiWidget::Type::label && w.type != GuiWidget::Type::group)
+            w.fontSize = 0.0f;
+
+        const auto t = w.type;
+        const auto defaultW = t == GuiWidget::Type::slider ? 32 : t == GuiWidget::Type::toggle ? 48 : t == GuiWidget::Type::meter ? 18
+                            : t == GuiWidget::Type::lamp ? 30 : t == GuiWidget::Type::xy ? 160 : t == GuiWidget::Type::label ? 160
+                            : t == GuiWidget::Type::image ? 160 : 200;
+        const auto defaultH = t == GuiWidget::Type::slider ? 140 : t == GuiWidget::Type::toggle ? 48 : t == GuiWidget::Type::meter ? 140
+                            : t == GuiWidget::Type::lamp ? 44 : t == GuiWidget::Type::xy ? 180 : t == GuiWidget::Type::label ? 28
+                            : t == GuiWidget::Type::preset ? 28 : t == GuiWidget::Type::group ? 160 : 120;
+        w.bounds = { x, y, juce::jlimit (8, maxWidth, intOf (item, "w", defaultW)), juce::jlimit (8, maxHeight, intOf (item, "h", defaultH)) };
+    }
+
+    return w;
+}
+
+juce::var GuiLayout::widgetToVar (const GuiWidget& w)
+{
+    auto item = object();
+    set (item, "type", typeName (w.type));
+    set (item, "x", w.bounds.getX());
+    set (item, "y", w.bounds.getY());
+
+    if (w.type == GuiWidget::Type::knob)
+    {
+        set (item, "size", w.bounds.getWidth());
+    }
+    else
+    {
+        set (item, "w", w.bounds.getWidth());
+        set (item, "h", w.bounds.getHeight());
+    }
+
+    if (w.param.isNotEmpty())
+        set (item, "param", w.param);
+
+    if (w.label.isNotEmpty())
+        set (item, w.type == GuiWidget::Type::label || w.type == GuiWidget::Type::group ? "text" : "label", w.label);
+
+    if (w.style.isNotEmpty())
+        set (item, "style", w.style);
+
+    if (! w.colour.isTransparent())
+        set (item, "color", colourToString (w.colour));
+
+    if (w.fontSize > 0.0f && (w.type == GuiWidget::Type::label || w.type == GuiWidget::Type::group))
+        set (item, "size", w.fontSize);
+
+    if (w.bold)
+        set (item, "bold", true);
+
+    if (w.type == GuiWidget::Type::slider && ! w.vertical)
+        set (item, "orientation", "horizontal");
+
+    if (w.type == GuiWidget::Type::selector)
+    {
+        juce::Array<juce::var> options;
+
+        for (const auto& o : w.options)
+            options.add (o);
+
+        set (item, "options", options);
+    }
+
+    if (w.source.isNotEmpty())       set (item, "source", w.source);
+    if (w.mode.isNotEmpty())         set (item, "mode", w.mode);
+    if (w.type == GuiWidget::Type::lamp) set (item, "threshold", w.threshold);
+    if (w.path.isNotEmpty())         set (item, "path", w.path);
+    if (! w.stroke.isTransparent())  set (item, "stroke", colourToString (w.stroke));
+    if (w.strokeWidth > 0.0f)        set (item, "strokeWidth", w.strokeWidth);
+    if (w.image.isNotEmpty())        set (item, "image", w.image);
+
+    if (! w.roles.empty())
+    {
+        auto roles = object();
+
+        for (const auto& [role, id] : w.roles)
+            set (roles, role, id);
+
+        set (item, "params", roles);
+    }
+
+    return item;
+}
+
+//==============================================================================
+bool GuiLayout::isPicture (const juce::File& file)
+{
+    return file.existsAsFile() && file.hasFileExtension (pictureFiles().removeCharacters ("*"));
+}
+
+juce::String GuiLayout::importPicture (const juce::File& picture, const juce::File& imagesFolderFile)
+{
+    if (! isPicture (picture) || ! imagesFolderFile.createDirectory())
+        return {};
+
+    // Already in the folder: nothing to copy.
+    if (picture.getParentDirectory() == imagesFolderFile)
+        return picture.getFileName();
+
+    const auto base = juce::File::createLegalFileName (picture.getFileNameWithoutExtension()).trim();
+    const auto extension = picture.getFileExtension().toLowerCase();
+
+    for (int n = 1; n < 1000; ++n)
+    {
+        const auto name = (base.isNotEmpty() ? base : juce::String ("picture")) + (n > 1 ? " " + juce::String (n) : juce::String()) + extension;
+        const auto target = imagesFolderFile.getChildFile (name);
+
+        if (target.existsAsFile())
+        {
+            if (target.getSize() == picture.getSize() && target.hasIdenticalContentTo (picture))
+                return name;   // the same picture again
+
+            continue;
+        }
+
+        return picture.copyFileTo (target) ? name : juce::String();
+    }
+
+    return {};
 }
 
 juce::Result GuiLayout::load (const juce::File& file, GuiLayout& result)

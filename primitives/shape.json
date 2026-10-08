@@ -1,0 +1,13 @@
+{
+  "name": "Shape",
+  "category": "Pictures & text",
+  "order": 260,
+  "icon": "shape",
+  "description": "A filled shape (a star to start with), for decoration.",
+  "widget": {
+    "type": "shape",
+    "w": 60,
+    "h": 60,
+    "path": "M50,5 L61,39 L97,39 L68,61 L79,95 L50,74 L21,95 L32,61 L3,39 L39,39 Z"
+  }
+}

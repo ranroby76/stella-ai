@@ -90,11 +90,6 @@ public:
     /** Sends one conversation turn to Stella AI. The answer holds { reply, used, credits }. */
     void chat (const juce::var& request, Done done);
 
-    /** Cloud projects (the stellaProjects function): list, save, load, delete. Needs a
-        signed-in computer. A failed result keeps the answer, so callers can tell a
-        conflict ("error": "conflict") from other problems. */
-    void cloud (const juce::var& request, Done done);
-
     /** Called on the message thread whenever the status, credits or account change. */
     std::function<void()> onStateChanged;
 

@@ -37,8 +37,9 @@ public:
     ~StellaAi();
 
     /** Sends a request, with files for Stella AI to look at: images (shown to it), PDFs
-        and text files such as code (read by it). Up to 5 files. */
-    void send (const juce::String& text, const juce::Array<juce::File>& files = {});
+        and text files such as code (read by it). Up to 5 files. The conversation shows
+        shownText when it's given (the request without the context added for Stella AI). */
+    void send (const juce::String& text, const juce::Array<juce::File>& files = {}, const juce::String& shownText = {});
 
     static bool canAttach (const juce::File& file);
     static juce::String attachableFiles();   // for a file chooser: "*.png;*.jpg;..."

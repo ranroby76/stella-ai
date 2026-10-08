@@ -33,6 +33,15 @@ juce_add_binary_data(StellaAssets
     SOURCES
         "assets/fanan logo.png")
 
+# The Edit UI toolbox's primitives: one JSON file each in the primitives folder, compiled
+# into the app. A new file there shows in the toolbox after the next build.
+file(GLOB STELLA_PRIMITIVES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/primitives/*.json")
+
+juce_add_binary_data(StellaPrimitives
+    HEADER_NAME StellaPrimitives.h
+    NAMESPACE   StellaPrimitives
+    SOURCES     ${STELLA_PRIMITIVES})
+
 # The Stella runtime, the plugin wrappers and Stella AI's guide, carried inside the app:
 # the runtime and wrappers are compiled into each plugin, not into the studio.
 juce_add_binary_data(StellaRuntimeData
@@ -89,8 +98,6 @@ target_sources(StellaAIStudio PRIVATE
     src/ProjectTools.cpp
     src/PluginExporter.h
     src/PluginExporter.cpp
-    src/CloudProjects.h
-    src/CloudProjects.cpp
     src/History.h
     src/History.cpp
     src/PresetBank.h
@@ -105,6 +112,13 @@ target_sources(StellaAIStudio PRIVATE
     src/GuiLayout.cpp
     src/PluginCanvas.h
     src/PluginCanvas.cpp
+    src/PluginCanvasMenu.h
+    src/PluginCanvas_Menu.cpp
+    src/PluginCanvas_Mouse.cpp
+    src/Primitives.h
+    src/Primitives.cpp
+    src/Toolbox.h
+    src/Toolbox.cpp
     src/KnobSource.h
     src/UiHelpers.h
     src/StyleEditorPanel.h
@@ -142,6 +156,7 @@ target_link_libraries(StellaAIStudio
     PRIVATE
         StellaRuntimeData
         StellaAssets
+        StellaPrimitives
         juce::juce_audio_utils
         juce::juce_audio_devices
         juce::juce_audio_basics

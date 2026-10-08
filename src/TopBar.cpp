@@ -13,8 +13,6 @@ namespace
     {
         revealId = 1,
         closeId  = 2,
-        cloudSaveId = 3,
-        cloudOpenId = 4,
         newId = 5,
         openId = 6,
         recentBaseId = 100
@@ -34,7 +32,7 @@ namespace
     const juce::String dot = juce::String::fromUTF8 (" \xc2\xb7 ");
 
     constexpr int pillPadding = 14, minPillWidth = 120, maxPillWidth = 460;
-    constexpr int wordmarkWidth = 172, meterWidth = 16, loadWidth = 72, audioButtonWidth = 104;
+    constexpr int wordmarkWidth = 172, meterWidth = 16, loadWidth = 72;
 }
 
 //==============================================================================
@@ -191,15 +189,13 @@ void TopBar::Meter::paint (juce::Graphics& g)
 //==============================================================================
 TopBar::TopBar()
 {
-    optionsMenu.setTooltip ("New, open, the cloud and recent projects");
+    optionsMenu.setTooltip ("New, open and recent projects");
     optionsMenu.onClick = [this] { showOptionsMenu(); };
 
     devicePill.onClick = [this] { if (onAudioSettings != nullptr) onAudioSettings(); };
-    audioButton.setTooltip ("Audio and MIDI settings");
-    audioButton.onClick = [this] { if (onAudioSettings != nullptr) onAudioSettings(); };
     meter.setTooltip ("Output level");
 
-    for (auto* c : std::initializer_list<juce::Component*> { &optionsMenu, &devicePill, &meter, &audioButton })
+    for (auto* c : std::initializer_list<juce::Component*> { &optionsMenu, &devicePill, &meter })
         addAndMakeVisible (c);
 
     for (int i = 0; i < numTabs; ++i)
@@ -240,7 +236,7 @@ void TopBar::setDevice (const juce::StringArray& details, const juce::String& to
     pieces.removeEmptyStrings();
 
     devicePill.setPieces (pieces);
-    devicePill.setTooltip (tooltip + "\nClick for the audio settings");
+    devicePill.setTooltip (tooltip + "\nClick for the audio and MIDI settings");
     resized();
 }
 
@@ -261,8 +257,8 @@ void TopBar::timerCallback()
 void TopBar::showOptionsMenu()
 {
     // A plain Windows-style menu: text items, separators, and a submenu for recent projects.
+    // Projects live on this computer and save themselves as they change.
     const auto recent = recentProjects != nullptr ? recentProjects() : juce::StringArray();
-    const bool cloud = cloudAvailable != nullptr && cloudAvailable();
 
     juce::PopupMenu menu;
     menu.addItem (newId, juce::String::fromUTF8 ("New plugin\xe2\x80\xa6"));
@@ -274,18 +270,6 @@ void TopBar::showOptionsMenu()
         recentMenu.addItem (recentBaseId + i, juce::File (recent[i]).getParentDirectory().getFileName());
 
     menu.addSubMenu ("Open recent", recentMenu, ! recent.isEmpty());
-    menu.addSeparator();
-
-    // The cloud's state sits on the right of its item, where Windows shows shortcuts.
-    juce::PopupMenu::Item save ("Save to the cloud now");
-    save.itemID = cloudSaveId;
-    save.isEnabled = cloud && hasProject;
-
-    if (save.isEnabled && cloudStatus != nullptr)
-        save.shortcutKeyDescription = cloudStatus().fromFirstOccurrenceOf ("Cloud: ", false, false);
-
-    menu.addItem (save);
-    menu.addItem (cloudOpenId, juce::String::fromUTF8 ("Open from the cloud\xe2\x80\xa6"), cloud);
     menu.addSeparator();
     menu.addItem (revealId, "Show project folder", hasProject);
     menu.addItem (closeId, "Close project", hasProject);
@@ -304,10 +288,6 @@ void TopBar::showOptionsMenu()
                                 safeThis->onNew();
                             else if (result == openId && safeThis->onOpen != nullptr)
                                 safeThis->onOpen();
-                            else if (result == cloudSaveId && safeThis->onSaveToCloud != nullptr)
-                                safeThis->onSaveToCloud();
-                            else if (result == cloudOpenId && safeThis->onOpenFromCloud != nullptr)
-                                safeThis->onOpenFromCloud();
                             else if (result == revealId && safeThis->onRevealProject != nullptr)
                                 safeThis->onRevealProject();
                             else if (result == closeId && safeThis->onCloseProject != nullptr)
@@ -378,15 +358,15 @@ void TopBar::resized()
         tabsWidth += tabWidths.getLast();
     }
 
-    // Always there: Options, the tabs, the meter and Audio / MIDI, with room for a short
-    // device pill. When the window is too narrow for the rest, the wordmark goes first,
-    // then the Fanan logo, then the audio load.
+    // Always there: Options, the tabs and the meter, with room for a short device pill.
+    // When the window is too narrow for the rest, the wordmark goes first, then the Fanan
+    // logo, then the audio load.
     bool showWordmark = true, showLogo = logoWidth > 0, showLoad = true;
 
     const auto needed = [&]
     {
         return (showWordmark ? wordmarkWidth : 0) + optionsWidth + 12 + minPillWidth + 24 + tabsWidth + 24
-             + meterWidth + (showLoad ? 8 + loadWidth : 0) + 14 + audioButtonWidth + (showLogo ? 16 + logoWidth : 0);
+             + meterWidth + (showLoad ? 8 + loadWidth : 0) + (showLogo ? 20 + logoWidth : 0);
     };
 
     if (needed() > area.getWidth())   showWordmark = false;
@@ -395,15 +375,12 @@ void TopBar::resized()
 
     wordmarkArea = showWordmark ? area.removeFromLeft (wordmarkWidth) : juce::Rectangle<int>();
 
-    // Right: the Fanan logo (433 x 171, fitted to the bar's height), Audio / MIDI, the load
-    // and the meter.
+    // Right: the Fanan logo (433 x 171, fitted to the bar's height), the load and the meter.
     fananArea = showLogo ? area.removeFromRight (logoWidth) : juce::Rectangle<int>();
 
     if (showLogo)
-        area.removeFromRight (16);
+        area.removeFromRight (20);
 
-    audioButton.setBounds (area.removeFromRight (audioButtonWidth));
-    area.removeFromRight (14);
     loadArea = showLoad ? area.removeFromRight (loadWidth) : juce::Rectangle<int>();
 
     if (showLoad)

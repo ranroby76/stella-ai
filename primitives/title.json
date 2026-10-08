@@ -1,0 +1,15 @@
+{
+  "name": "Title",
+  "category": "Pictures & text",
+  "order": 230,
+  "icon": "title",
+  "description": "Big bold text, for the plugin's name.",
+  "widget": {
+    "type": "label",
+    "w": 320,
+    "h": 40,
+    "text": "MY PLUGIN",
+    "size": 26,
+    "bold": true
+  }
+}

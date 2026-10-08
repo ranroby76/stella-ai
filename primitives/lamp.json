@@ -1,0 +1,13 @@
+{
+  "name": "Lamp",
+  "category": "Displays",
+  "order": 130,
+  "icon": "lamp",
+  "description": "A light that comes on with a signal or a setting.",
+  "widget": {
+    "type": "lamp",
+    "w": 30,
+    "h": 44,
+    "label": "Lamp"
+  }
+}

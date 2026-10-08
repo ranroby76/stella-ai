@@ -135,6 +135,8 @@ The studio draws the plugin's window from this file; `set_layout` replaces it an
 - `xy`: an XY pad moving two parameters, `"params": { "x": "<id>", "y": "<id>" }`.
 - `shape`: SVG path data in `"path"`, scaled to fit its box, filled with `"color"`, outlined with `"stroke"` and `"strokeWidth"`: logos, wave icons, decoration.
 - `preset`: a preset browser, "< name >": the arrows step through the plugin's presets, the middle lists them. About 200 x 28.
+- Pictures: `"background"` can also take `"image": "<file>"` with `"mode"`: `"fill"` (covers the window, cropping the edges), `"fit"`, `"stretch"`, `"centre"` or `"tile"`. An `image` element shows a picture anywhere: `{ "type": "image", "x": 20, "y": 10, "w": 180, "h": 60, "image": "logo.png", "mode": "fit" }` (same modes). Pictures come only from the user: use the files listed under "Pictures in gui/images", by file name, and never invent one. Keep the user's pictures unless they ask to change them; put controls where the picture leaves room for them.
+- Requests made from the Edit UI tab name one element (with its JSON) or the whole window: change just that, with `set_layout`, and keep the rest as it is.
 
 ## Presets
 `save_preset` stores a named set of parameter values (ids to values; parameters left out keep their defaults). A preset with the same name is replaced. Presets show in the studio's preset list and go into the exported plugin, where a `preset` widget steps through them. When asked for presets, give each a clear name and values that really sound different.

@@ -1,0 +1,15 @@
+{
+  "name": "Level meter",
+  "category": "Displays",
+  "order": 110,
+  "icon": "meter",
+  "description": "Shows how loud a sound is.",
+  "widget": {
+    "type": "meter",
+    "w": 18,
+    "h": 150,
+    "source": "plugin.out L",
+    "mode": "peak",
+    "label": "Level"
+  }
+}

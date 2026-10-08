@@ -1,0 +1,12 @@
+{
+  "name": "Preset browser",
+  "category": "Controls",
+  "order": 50,
+  "icon": "presets",
+  "description": "Steps through the plugin's presets.",
+  "widget": {
+    "type": "preset",
+    "w": 200,
+    "h": 28
+  }
+}

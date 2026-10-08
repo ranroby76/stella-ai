@@ -1,0 +1,12 @@
+{
+  "name": "Switch",
+  "category": "Controls",
+  "order": 30,
+  "icon": "switch",
+  "description": "An on/off button with a lamp.",
+  "widget": {
+    "type": "switch",
+    "w": 48,
+    "h": 66
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "name": "Background picture",
+  "category": "Pictures & text",
+  "order": 210,
+  "icon": "background",
+  "description": "A picture behind the whole plugin window.",
+  "action": "background"
+}

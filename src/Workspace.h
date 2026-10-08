@@ -7,6 +7,7 @@
 #include "KnobStudio.h"
 #include "PluginCanvas.h"
 #include "SchematicView.h"
+#include "Toolbox.h"
 
 #include <functional>
 
@@ -15,10 +16,10 @@
     The window below the top bar, in four tabs (picked in the top bar):
 
         Build with AI  the conversation with Stella AI (the main window's chat panel)
-        Edit UI        the plugin, playing live, on a grid, in two tabs of its own: Edit,
-                       where its GUI is reshaped, and Play, where the GUI is locked and
-                       plays like the finished plugin. Empty (just the grid) until Stella
-                       AI builds a plugin or one is opened
+        Edit UI        the plugin, playing live, on a grid you zoom and move around, in two
+                       tabs of its own: Edit, where its GUI is reshaped (with the primitives
+                       toolbox on the left), and Play, where the GUI is locked and plays like
+                       the finished plugin. Empty (just the grid) until a project is open
         Schematic      its DSP blocks and wires; click a block to instruct the AI
         Knob Studio    KnobMaker's tools, for shaping a knob or a panel
 */
@@ -44,6 +45,13 @@ public:
 
     /** name empty: no project is open. */
     void setProject (const juce::String& name, const juce::String& kindName);
+
+    /** The open project's gui folder (pictures, the Edit UI view); none: no project. */
+    void setGuiFolder (const juce::File& folder);
+
+    /** The Edit UI banner: Stella AI at work on a request from an edit menu, then its answer. */
+    void showAiWorking (const juce::String& what);
+    void showAiReply (const juce::String& reply);
 
     /** The Edit UI tab's own tabs: Edit (false) or Play (true). */
     void setPlayMode (bool playMode);
@@ -78,6 +86,9 @@ public:
     std::function<void (bool playMode)> onModeChanged;   // the user picked Edit or Play
     std::function<void (int tabIndex)> onTabChanged;     // whichever way the tab changed
 
+    /** An edit menu's instruction for Stella AI, about one element of the GUI (-1: the window). */
+    std::function<void (int widgetIndex, const juce::String& instruction)> onAskAiAboutGui;
+
     std::function<void (int presetIndex)> onPresetChosen;
     std::function<void()> onSavePreset;
     std::function<void (int presetIndex)> onDeletePreset;
@@ -92,7 +103,8 @@ public:
 
 private:
     //==============================================================================
-    class PluginView final : public juce::Component
+    class PluginView final : public juce::Component,
+                             public juce::DragAndDropContainer
     {
     public:
         PluginView();
@@ -115,17 +127,17 @@ private:
         static constexpr int barHeight = 48, rowHeight = 40;
 
         PluginCanvas canvas;
+        Toolbox toolbox;
 
     private:
-        void showAddMenu();
         void chooseMode (bool play);
 
         // Two tabs: Edit (reshape the panel) and Play (the panel locked, its controls live).
         juce::TextButton editTab { "Edit" }, playTab { "Play" };
         juce::TextButton rebuildButton { "Rebuild" }, logButton { "Log" }, exportButton { "Export" };
 
-        // The Edit tab's row: add parts, or start over with an automatic panel.
-        juce::TextButton addButton { "+ Add" }, autoButton { "Auto layout" };
+        // The Edit tab's row: start over with an automatic panel.
+        juce::TextButton autoButton { "Auto layout" };
 
         // The Play tab's row: choose, save and delete presets; compare A and B.
         juce::ComboBox presetBox;

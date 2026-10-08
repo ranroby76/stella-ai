@@ -11,11 +11,12 @@
 
 //==============================================================================
 /** One element of the plugin's GUI. Controls are bound to a parameter by its id; meters,
-    lamps and scopes watch a source (a signal or a module's display). */
+    lamps and scopes watch a source (a signal or a module's display); pictures show a file
+    from the project's gui/images folder. */
 struct GuiWidget
 {
     enum class Type { knob, slider, toggle, selector, label, group,
-                      meter, scope, lamp, envelope, filter, xy, shape, preset };
+                      meter, scope, lamp, envelope, filter, xy, shape, preset, image };
 
     Type type = Type::knob;
     juce::Rectangle<int> bounds;   // in the plugin window's pixels; controls include their caption
@@ -29,7 +30,9 @@ struct GuiWidget
     juce::StringArray options;     // selectors: one per position
 
     juce::String source;           // meters, lamps, scopes: "voices.out", "plugin.out L", "lfo.position"
-    juce::String mode;             // meters: "peak" or "rms"; filters: "lowpass", "highpass", "bandpass" (+ "24")
+    juce::String mode;             // meters: "peak" or "rms"; filters: "lowpass", "highpass", "bandpass" (+ "24");
+                                   // pictures: how they fill their box (see GuiLayout::pictureModes)
+    juce::String image;            // pictures: a file name in the project's gui/images folder
     std::map<juce::String, juce::String> roles;   // envelope: attack, decay, sustain, release;
                                                   // filter: cutoff, resonance; xy: x, y (parameter ids)
     float threshold = 0.5f;        // lamps: on from this value
@@ -57,23 +60,46 @@ struct GuiWidget
 //==============================================================================
 /**
     The plugin's GUI as data, kept in the project as gui/layout.json. Stella AI drafts it,
-    the user reshapes it in Design mode, and the studio draws it: knobs come from
+    the user reshapes it in the Edit UI tab, and the studio draws it: knobs come from
     KnobMaker's renderer (KnobStyle), so they look the same in the Knob Studio, on the
-    canvas and, later, in the exported plugin.
+    canvas and in the exported plugin. Pictures (a background, or picture elements) are
+    files in the project's gui/images folder.
 */
 class GuiLayout
 {
 public:
     int width = 720, height = 420;
     juce::Colour backgroundTop { 0xff2b2b30 }, backgroundBottom { 0xff17171a };
+    juce::String backgroundImage;              // a file in gui/images, over the colours (empty: none)
+    juce::String backgroundMode { "fill" };    // how it covers the window (see pictureModes)
     std::map<juce::String, KnobStyle> styles;
     std::vector<GuiWidget> widgets;
 
     static constexpr const char* fileName = "layout.json";   // in the project's gui folder
+    static constexpr const char* imagesFolder = "images";    // the pictures, in the gui folder
     static constexpr int captionHeight = 20;                 // the caption under a control
+    static constexpr int minWidth = 240, maxWidth = 2400, minHeight = 160, maxHeight = 1600;
+
+    /** How a picture fills its box: "fill" (covers it, cropping the edges), "fit" (whole,
+        keeping its shape), "stretch", "centre" (its own size) or "tile". With names for menus. */
+    static juce::StringArray pictureModes()       { return { "fill", "fit", "stretch", "centre", "tile" }; }
+    static juce::StringArray pictureModeNames()   { return { "Fill (crop the edges)", "Fit (whole picture)", "Stretch", "Centre (own size)", "Tile" }; }
+
+    /** The picture types the studio reads. */
+    static juce::String pictureFiles()            { return "*.png;*.jpg;*.jpeg;*.gif"; }
+    static bool isPicture (const juce::File& file);
+
+    /** Copies a picture into the images folder (named after it; a different picture with
+        that name gets a number) and returns its file name there, or empty if it failed.
+        The same picture again reuses its copy. */
+    static juce::String importPicture (const juce::File& picture, const juce::File& imagesFolderFile);
 
     static GuiLayout fromVar (const juce::var& json);
     juce::var toVar() const;
+
+    /** One element as JSON (the same fields as in layout.json), and back. */
+    static juce::var widgetToVar (const GuiWidget& widget);
+    static GuiWidget widgetFromVar (const juce::var& json);
 
     static juce::Result load (const juce::File& file, GuiLayout& result);
     juce::Result save (const juce::File& file) const;

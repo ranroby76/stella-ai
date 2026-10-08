@@ -455,39 +455,6 @@ void FananServer::signOut (Done done)
 }
 
 //==============================================================================
-void FananServer::cloud (const juce::var& request, Done done)
-{
-    auto body = request.isObject() ? request.clone() : object();
-    body.getDynamicObject()->setProperty ("token", key);
-
-    workers.addJob ([this, stillAlive = alive, body, done]
-    {
-        if (! stillAlive->load())
-            return;
-
-        const auto response = post ("stellaProjects", body, 60000);
-        const auto& answer = response.body;
-        const auto error = answer.getProperty ("error", {}).toString();
-
-        auto result = juce::Result::ok();
-
-        if (! response.connected)
-            result = juce::Result::fail ("The cloud couldn't be reached. Your work is safe on this computer, and it goes to the cloud once the connection is back.");
-        else if (response.status == 401 || response.status == 403 || error == "not_signed_in")
-            result = juce::Result::fail ("Sign in to keep projects in the cloud.");
-        else if (error == "conflict")
-            result = juce::Result::fail ("conflict");
-        else if (response.status != 200 || ! (bool) answer.getProperty ("ok", false))
-            result = juce::Result::fail (failureText (response, "The cloud couldn't do that. Please try again."));
-
-        deliver ([result, answer, done]
-        {
-            if (done != nullptr)
-                done (result, answer);
-        });
-    });
-}
-
 void FananServer::chat (const juce::var& request, Done done)
 {
     auto body = request.isObject() ? request.clone() : object();

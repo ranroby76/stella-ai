@@ -1,0 +1,11 @@
+{
+  "name": "Small knob",
+  "category": "Controls",
+  "order": 11,
+  "icon": "knob_small",
+  "description": "A small knob, for the settings around a big one.",
+  "widget": {
+    "type": "knob",
+    "size": 36
+  }
+}

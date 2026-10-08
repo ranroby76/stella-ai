@@ -1,0 +1,11 @@
+{
+  "name": "Knob",
+  "category": "Controls",
+  "order": 10,
+  "icon": "knob",
+  "description": "A round knob that turns one parameter.",
+  "widget": {
+    "type": "knob",
+    "size": 56
+  }
+}

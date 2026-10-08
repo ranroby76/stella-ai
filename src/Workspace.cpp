@@ -36,9 +36,6 @@ Workspace::PluginView::PluginView()
     exportButton.setTooltip ("Build the plugin as files your DAW loads (CLAP and VST3, Windows 64-bit)");
     exportButton.onClick = [this] { if (onExport != nullptr) onExport(); };
 
-    addButton.setTooltip ("Add a knob, slider, switch, meter, label or another part");
-    addButton.onClick = [this] { showAddMenu(); };
-
     autoButton.setTooltip ("Replace the GUI with a plain automatic one: a group per module, a control per parameter");
     autoButton.onClick = [this] { if (onAutoLayout != nullptr) onAutoLayout(); };
 
@@ -85,35 +82,17 @@ Workspace::PluginView::PluginView()
 
     for (auto* c : std::initializer_list<juce::Component*> { &presetBox, &savePresetButton, &deletePresetButton, &aButton, &bButton, &copyButton })
         addChildComponent (c);
-    addChildComponent (addButton);
     addChildComponent (autoButton);
     addChildComponent (canvas);
-}
 
-void Workspace::PluginView::showAddMenu()
-{
-    juce::PopupMenu menu;
-    const char* names[] { "Knob", "Slider", "Switch", "Selector", "XY pad",
-                          "Meter", "Lamp", "Scope", "Envelope curve", "Filter curve",
-                          "Presets", "Label", "Group", "Shape" };
-    const GuiWidget::Type types[] { GuiWidget::Type::knob, GuiWidget::Type::slider, GuiWidget::Type::toggle, GuiWidget::Type::selector, GuiWidget::Type::xy,
-                                    GuiWidget::Type::meter, GuiWidget::Type::lamp, GuiWidget::Type::scope, GuiWidget::Type::envelope, GuiWidget::Type::filter,
-                                    GuiWidget::Type::preset, GuiWidget::Type::label, GuiWidget::Type::group, GuiWidget::Type::shape };
-
-    for (int i = 0; i < 14; ++i)
+    // The toolbox: drag a primitive onto the window, or double-click it.
+    toolbox.onAdd = [this] (const juce::String& id)
     {
-        if (i == 5 || i == 10 || i == 11)
-            menu.addSeparator();
+        if (const auto* primitive = PrimitiveLibrary::get().find (id))
+            canvas.addPrimitive (*primitive);
+    };
 
-        menu.addItem (i + 1, names[i]);
-    }
-
-    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&addButton),
-                        [safeThis = juce::Component::SafePointer<PluginView> (this), types] (int result)
-                        {
-                            if (safeThis != nullptr && result > 0)
-                                safeThis->canvas.addWidget (types[result - 1]);
-                        });
+    addChildComponent (toolbox);
 }
 
 void Workspace::PluginView::setProject (const juce::String& name, const juce::String& kindName)
@@ -141,13 +120,14 @@ void Workspace::PluginView::setPlayMode (bool shouldPlay)
     // Each tab has a row of its own: Edit's tools, or Play's presets and A/B.
     const bool hasProject = projectName.isNotEmpty();
 
-    for (auto* c : std::initializer_list<juce::Component*> { &addButton, &autoButton })
-        c->setVisible (hasProject && ! playMode);
+    autoButton.setVisible (hasProject && ! playMode);
+    toolbox.setVisible (hasProject && ! playMode);
 
     for (auto* c : std::initializer_list<juce::Component*> { &presetBox, &savePresetButton, &deletePresetButton, &aButton, &bButton, &copyButton })
         c->setVisible (hasProject && playMode);
 
     canvas.setDesignMode (! playMode);
+    resized();   // the toolbox shows in Edit only
     repaint();
 }
 
@@ -230,8 +210,8 @@ void Workspace::PluginView::paint (juce::Graphics& g)
     if (playMode)
         g.drawText ("Preset", juce::Rectangle<int> (16, barHeight, 60, rowHeight), juce::Justification::centredLeft, false);
     else
-        g.drawFittedText (juce::String::fromUTF8 ("Click a part to select it \xc2\xb7 drag to move \xc2\xb7 drag its corner to resize \xc2\xb7 "
-                                                  "Delete removes it \xc2\xb7 double-click a knob to restyle it"),
+        g.drawFittedText (juce::String::fromUTF8 ("Drag parts in from the toolbox \xc2\xb7 click one to edit it or ask Stella AI \xc2\xb7 "
+                                                  "drag empty space to move around \xc2\xb7 Ctrl + wheel zooms"),
                           hintArea, juce::Justification::centredLeft, 1, 0.85f);
 }
 
@@ -253,10 +233,8 @@ void Workspace::PluginView::resized()
 
     const auto row = getLocalBounds().withTrimmedTop (barHeight).removeFromTop (rowHeight).reduced (16, 6);
 
-    // Edit's row: + Add and Auto layout, then how editing works.
+    // Edit's row: Auto layout, then how editing works.
     auto tools = row;
-    addButton.setBounds (tools.removeFromLeft (72));
-    tools.removeFromLeft (6);
     autoButton.setBounds (tools.removeFromLeft (104));
     tools.removeFromLeft (18);
     hintArea = tools;
@@ -275,8 +253,14 @@ void Workspace::PluginView::resized()
     bButton.setBounds (presets.removeFromRight (36));
     aButton.setBounds (presets.removeFromRight (36));
 
-    // The grid: under the bars with a project, the whole tab without one.
-    canvas.setBounds (projectName.isNotEmpty() ? getLocalBounds().withTrimmedTop (barHeight + rowHeight) : getLocalBounds());
+    // The grid: under the bars with a project, the whole tab without one. In Edit, the
+    // toolbox runs down its left side.
+    auto rest = projectName.isNotEmpty() ? getLocalBounds().withTrimmedTop (barHeight + rowHeight) : getLocalBounds();
+
+    if (toolbox.isVisible())
+        toolbox.setBounds (rest.removeFromLeft (Toolbox::width));
+
+    canvas.setBounds (rest);
 }
 
 //==============================================================================
@@ -325,6 +309,12 @@ Workspace::Workspace()
     pluginView.onMode       = [this] (bool play) { if (onModeChanged != nullptr) onModeChanged (play); };
 
     pluginView.canvas.onLayoutEdited = [this] { if (onLayoutEdited != nullptr) onLayoutEdited(); };
+    pluginView.canvas.onAskAi = [this] (int widgetIndex, const juce::String& instruction)
+    {
+        if (onAskAiAboutGui != nullptr)
+            onAskAiAboutGui (widgetIndex, instruction);
+    };
+    pluginView.canvas.onOpenChat = [this] { showTab (aiTab); };
 
     // Double-click a knob in the Edit tab: its look opens in the Knob Studio.
     pluginView.canvas.onEditKnob = [this] (int widgetIndex)
@@ -400,6 +390,9 @@ void Workspace::setProject (const juce::String& name, const juce::String& kindNa
     pluginView.setProject (name, kindName);
 }
 
+void Workspace::setGuiFolder (const juce::File& folder)                   { pluginView.canvas.setGuiFolder (folder); }
+void Workspace::showAiWorking (const juce::String& what)                  { pluginView.canvas.showAiWorking (what); }
+void Workspace::showAiReply (const juce::String& reply)                   { pluginView.canvas.showAiReply (reply); }
 void Workspace::setPlayMode (bool playMode)                               { pluginView.setPlayMode (playMode); }
 void Workspace::setBuild (BuildState state, const juce::String& status)   { pluginView.setBuild (state, status); }
 void Workspace::setExporting (bool exporting)                             { pluginView.setExporting (exporting); }

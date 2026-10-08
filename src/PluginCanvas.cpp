@@ -1,336 +1,185 @@
 // C:\workspace\Stella AI Studio\src\PluginCanvas.cpp
+// The canvas's elements: adding them, drawing them, baking them for Export. The view and
+// the mouse are in PluginCanvas_Mouse.cpp, the edit menu in PluginCanvas_Menu.cpp.
 
 #include "PluginCanvas.h"
+#include "PluginCanvasMenu.h"
 #include "StellaLookAndFeel.h"
 
 namespace
 {
-    constexpr int snap = 4;                 // design grid, in plugin pixels
-    constexpr float handleSize = 10.0f;     // the resize handle, in view pixels
     constexpr int scopeSamples = 2048;
     const juce::Colour defaultAccent { 0xffe5484d };
     const juce::Colour captionColour { 0xffd8d4ca };
-
-    int snapped (float v)    { return juce::roundToInt (v / (float) snap) * snap; }
-
-    bool isInteractive (const GuiWidget& w)  { return w.isControl() || w.type == GuiWidget::Type::xy || w.type == GuiWidget::Type::preset; }
-
-    const juce::StringArray typeNames { "Knob", "Slider", "Switch", "Selector", "Label", "Group",
-                                        "Meter", "Scope", "Lamp", "Envelope", "Filter curve", "XY pad", "Shape", "Presets" };
-    const GuiWidget::Type typeOrder[] { GuiWidget::Type::knob, GuiWidget::Type::slider, GuiWidget::Type::toggle,
-                                        GuiWidget::Type::selector, GuiWidget::Type::label, GuiWidget::Type::group,
-                                        GuiWidget::Type::meter, GuiWidget::Type::scope, GuiWidget::Type::lamp,
-                                        GuiWidget::Type::envelope, GuiWidget::Type::filter, GuiWidget::Type::xy, GuiWidget::Type::shape,
-                                        GuiWidget::Type::preset };
-    constexpr int numTypes = 14;
-
-    const juce::StringArray meterModes { "peak", "rms" };
-    const juce::StringArray meterModeNames { "Peak", "RMS" };
-    const juce::StringArray filterModes { "lowpass", "lowpass24", "highpass", "highpass24", "bandpass" };
-    const juce::StringArray filterModeNames { "Low-pass", "Low-pass 24 dB", "High-pass", "High-pass 24 dB", "Band-pass" };
-
-    const char* defaultStar = "M50,5 L61,39 L97,39 L68,61 L79,95 L50,74 L21,95 L32,61 L3,39 L39,39 Z";
-
-    juce::Rectangle<int> defaultBounds (GuiWidget::Type type, int x, int y)
-    {
-        switch (type)
-        {
-            case GuiWidget::Type::knob:      return { x, y, 52, 52 + GuiLayout::captionHeight };
-            case GuiWidget::Type::slider:    return { x, y, 32, 140 };
-            case GuiWidget::Type::toggle:    return { x, y, 48, 66 };
-            case GuiWidget::Type::selector:  return { x, y, 180, 48 };
-            case GuiWidget::Type::label:     return { x, y, 200, 28 };
-            case GuiWidget::Type::group:     return { x, y, 240, 160 };
-            case GuiWidget::Type::meter:     return { x, y, 18, 140 };
-            case GuiWidget::Type::scope:     return { x, y, 200, 110 };
-            case GuiWidget::Type::lamp:      return { x, y, 30, 44 };
-            case GuiWidget::Type::envelope:  return { x, y, 200, 110 };
-            case GuiWidget::Type::filter:    return { x, y, 200, 110 };
-            case GuiWidget::Type::xy:        return { x, y, 160, 180 };
-            case GuiWidget::Type::shape:     return { x, y, 60, 60 };
-            case GuiWidget::Type::preset:    return { x, y, 200, 28 };
-        }
-
-        return { x, y, 60, 60 };
-    }
 }
 
 //==============================================================================
-PluginCanvas::Inspector::Inspector (PluginCanvas& owner)
-    : canvas (owner)
+bool PluginCanvas::isInteractive (const GuiWidget& w)
 {
-    type.addItemList (typeNames, 1);
-
-    for (auto* box : { &type, &param, &source, &mode, &style })
-    {
-        box->onChange = [this] { apply(); };
-        addAndMakeVisible (box);
-    }
-
-    for (int i = 0; i < 4; ++i)
-    {
-        roles[i].onChange = [this] { apply(); };
-        addAndMakeVisible (roles[i]);
-        roleCaptions[i].setColour (juce::Label::textColourId, Theme::muted);
-        roleCaptions[i].setFont (Theme::font (12.5f));
-        addAndMakeVisible (roleCaptions[i]);
-    }
-
-    for (auto* editor : { &label, &options })
-    {
-        editor->setFont (Theme::font (14.0f));
-        editor->onTextChange = [this] { apply(); };
-        addAndMakeVisible (editor);
-    }
-
-    options.setTextToShowWhenEmpty ("Saw, Square, Triangle", Theme::muted);
-
-    removeButton.onClick = [this]
-    {
-        if (juce::isPositiveAndBelow (canvas.selected, (int) canvas.layout.widgets.size()))
-        {
-            canvas.layout.widgets.erase (canvas.layout.widgets.begin() + canvas.selected);
-            canvas.select (-1);
-            canvas.edited();
-        }
-    };
-
-    addAndMakeVisible (removeButton);
+    return w.isControl() || w.type == GuiWidget::Type::xy || w.type == GuiWidget::Type::preset;
 }
 
-void PluginCanvas::Inspector::fillParams (juce::ComboBox& box, const juce::String& selectedId, bool withNone)
+juce::String PluginCanvas::typeDisplayName (GuiWidget::Type type)
 {
-    box.clear (juce::dontSendNotification);
+    switch (type)
+    {
+        case GuiWidget::Type::knob:      return "Knob";
+        case GuiWidget::Type::slider:    return "Slider";
+        case GuiWidget::Type::toggle:    return "Switch";
+        case GuiWidget::Type::selector:  return "Selector";
+        case GuiWidget::Type::label:     return "Text";
+        case GuiWidget::Type::group:     return "Frame";
+        case GuiWidget::Type::meter:     return "Level meter";
+        case GuiWidget::Type::scope:     return "Scope";
+        case GuiWidget::Type::lamp:      return "Lamp";
+        case GuiWidget::Type::envelope:  return "Envelope curve";
+        case GuiWidget::Type::filter:    return "Filter curve";
+        case GuiWidget::Type::xy:        return "XY pad";
+        case GuiWidget::Type::shape:     return "Shape";
+        case GuiWidget::Type::preset:    return "Preset browser";
+        case GuiWidget::Type::image:     return "Picture";
+    }
 
-    if (withNone)
-        box.addItem ("(none)", 1);
-
-    for (int i = 0; i < canvas.params.size(); ++i)
-        box.addItem (canvas.params[i].id + juce::String::fromUTF8 ("  \xc2\xb7  ") + canvas.params[i].name, i + 2);
-
-    box.setSelectedId (1, juce::dontSendNotification);
-
-    for (int i = 0; i < canvas.params.size(); ++i)
-        if (canvas.params[i].id == selectedId)
-            box.setSelectedId (i + 2, juce::dontSendNotification);
+    return "Element";
 }
 
-void PluginCanvas::Inspector::show (const GuiWidget& widget)
+juce::Rectangle<int> PluginCanvas::defaultBounds (GuiWidget::Type type, int x, int y)
 {
-    const juce::ScopedValueSetter<bool> quiet (updating, true);
-
-    for (int i = 0; i < numTypes; ++i)
-        if (typeOrder[i] == widget.type)
-            type.setSelectedId (i + 1, juce::dontSendNotification);
-
-    fillParams (param, widget.param, true);
-
-    source.clear (juce::dontSendNotification);
-    juce::StringArray sources (canvas.signalSources);
-    sources.addArray (canvas.displaySources);
-
-    if (widget.source.isNotEmpty())
-        sources.addIfNotAlreadyThere (widget.source);
-
-    source.addItemList (sources, 1);
-    source.setSelectedId (sources.indexOf (widget.source) + 1, juce::dontSendNotification);
-
-    roleNames = GuiWidget::rolesOf (widget.type);
-
-    for (int i = 0; i < 4; ++i)
+    switch (type)
     {
-        const bool used = i < roleNames.size();
-        roles[i].setVisible (used);
-        roleCaptions[i].setVisible (used);
-
-        if (used)
-        {
-            const auto found = widget.roles.find (roleNames[i]);
-            fillParams (roles[i], found != widget.roles.end() ? found->second : juce::String(), true);
-            roleCaptions[i].setText (roleNames[i].substring (0, 1).toUpperCase() + roleNames[i].substring (1), juce::dontSendNotification);
-        }
+        case GuiWidget::Type::knob:      return { x, y, 52, 52 + GuiLayout::captionHeight };
+        case GuiWidget::Type::slider:    return { x, y, 32, 140 };
+        case GuiWidget::Type::toggle:    return { x, y, 48, 66 };
+        case GuiWidget::Type::selector:  return { x, y, 180, 48 };
+        case GuiWidget::Type::label:     return { x, y, 200, 28 };
+        case GuiWidget::Type::group:     return { x, y, 240, 160 };
+        case GuiWidget::Type::meter:     return { x, y, 18, 140 };
+        case GuiWidget::Type::scope:     return { x, y, 200, 110 };
+        case GuiWidget::Type::lamp:      return { x, y, 30, 44 };
+        case GuiWidget::Type::envelope:  return { x, y, 200, 110 };
+        case GuiWidget::Type::filter:    return { x, y, 200, 110 };
+        case GuiWidget::Type::xy:        return { x, y, 160, 180 };
+        case GuiWidget::Type::shape:     return { x, y, 60, 60 };
+        case GuiWidget::Type::preset:    return { x, y, 200, 28 };
+        case GuiWidget::Type::image:     return { x, y, 160, 120 };
     }
 
-    mode.clear (juce::dontSendNotification);
-
-    if (widget.type == GuiWidget::Type::meter)
-    {
-        mode.addItemList (meterModeNames, 1);
-        mode.setSelectedId (juce::jmax (0, meterModes.indexOf (widget.mode)) + 1, juce::dontSendNotification);
-    }
-    else if (widget.type == GuiWidget::Type::filter)
-    {
-        mode.addItemList (filterModeNames, 1);
-        mode.setSelectedId (juce::jmax (0, filterModes.indexOf (widget.mode)) + 1, juce::dontSendNotification);
-    }
-
-    style.clear (juce::dontSendNotification);
-    juce::StringArray styleNames;
-
-    for (const auto& entry : canvas.layout.styles)
-        styleNames.add (entry.first);
-
-    for (const auto& preset : { "cream", "black", "metal" })
-        styleNames.addIfNotAlreadyThere (preset);
-
-    style.addItemList (styleNames, 1);
-    style.setSelectedId (juce::jmax (0, styleNames.indexOf (widget.style)) + 1, juce::dontSendNotification);
-
-    label.setText (widget.label, juce::dontSendNotification);
-    options.setText (widget.options.joinIntoString (", "), juce::dontSendNotification);
-
-    param.setVisible (widget.isControl());
-    source.setVisible (widget.isLive());
-    mode.setVisible (widget.type == GuiWidget::Type::meter || widget.type == GuiWidget::Type::filter);
-    style.setVisible (widget.type == GuiWidget::Type::knob);
-    options.setVisible (widget.type == GuiWidget::Type::selector);
-    resized();
-    repaint();
+    return { x, y, 60, 60 };
 }
 
-void PluginCanvas::Inspector::apply()
+const char* PluginCanvas::defaultStarPath()
 {
-    if (updating || ! juce::isPositiveAndBelow (canvas.selected, (int) canvas.layout.widgets.size()))
-        return;
-
-    auto& w = canvas.layout.widgets[(size_t) canvas.selected];
-    const auto newType = typeOrder[juce::jlimit (0, numTypes - 1, type.getSelectedId() - 1)];
-
-    if (newType != w.type)
-    {
-        w.bounds = defaultBounds (newType, w.bounds.getX(), w.bounds.getY());
-        w.type = newType;
-        w.roles.clear();
-        w.mode.clear();
-
-        if (newType == GuiWidget::Type::shape && w.path.isEmpty())
-            w.path = defaultStar;
-
-        show (w);
-        canvas.edited();
-        return;
-    }
-
-    auto paramAt = [this] (const juce::ComboBox& box)
-    {
-        const auto index = box.getSelectedId() - 2;
-        return juce::isPositiveAndBelow (index, canvas.params.size()) ? canvas.params[index].id : juce::String();
-    };
-
-    w.param = w.isControl() ? paramAt (param) : juce::String();
-    w.source = w.isLive() ? source.getText() : juce::String();
-
-    for (int i = 0; i < roleNames.size(); ++i)
-    {
-        const auto id = paramAt (roles[i]);
-
-        if (id.isNotEmpty()) w.roles[roleNames[i]] = id;
-        else                 w.roles.erase (roleNames[i]);
-    }
-
-    if (w.type == GuiWidget::Type::meter)
-        w.mode = meterModes[juce::jmax (0, mode.getSelectedId() - 1)];
-    else if (w.type == GuiWidget::Type::filter)
-        w.mode = filterModes[juce::jmax (0, mode.getSelectedId() - 1)];
-
-    w.label = label.getText();
-    w.style = w.type == GuiWidget::Type::knob ? style.getText() : juce::String();
-    w.options = juce::StringArray::fromTokens (options.getText(), ",", "");
-    w.options.trim();
-    w.options.removeEmptyStrings();
-
-    canvas.edited();
-}
-
-void PluginCanvas::Inspector::paint (juce::Graphics& g)
-{
-    const auto box = getLocalBounds().toFloat();
-    g.setColour (Theme::panel.withAlpha (0.97f));
-    g.fillRoundedRectangle (box, 8.0f);
-    g.setColour (Theme::outline);
-    g.drawRoundedRectangle (box.reduced (0.5f), 8.0f, 1.0f);
-
-    g.setColour (Theme::muted);
-    g.setFont (Theme::font (12.5f));
-
-    const std::pair<const juce::Component*, const char*> rows[] {
-        { &type, "Type" }, { &param, "Parameter" }, { &source, "Watches" }, { &mode, "Mode" },
-        { &label, "Label / text" }, { &style, "Knob look" }, { &options, "Positions (comma separated)" } };
-
-    for (const auto& [component, caption] : rows)
-        if (component->isVisible())
-            g.drawText (caption, component->getBounds().translated (0, -17).withHeight (16), juce::Justification::centredLeft, false);
-}
-
-void PluginCanvas::Inspector::resized()
-{
-    auto area = getLocalBounds().reduced (12, 10);
-
-    auto row = [&area] (juce::Component& c)
-    {
-        if (! c.isVisible())
-            return;
-
-        area.removeFromTop (17);
-        c.setBounds (area.removeFromTop (26));
-        area.removeFromTop (7);
-    };
-
-    row (type);
-    row (param);
-    row (source);
-
-    for (int i = 0; i < 4; ++i)
-    {
-        if (! roles[i].isVisible())
-            continue;
-
-        roleCaptions[i].setBounds (area.removeFromTop (17));
-        roles[i].setBounds (area.removeFromTop (26));
-        area.removeFromTop (7);
-    }
-
-    row (mode);
-    row (label);
-    row (style);
-    row (options);
-
-    removeButton.setBounds (area.removeFromTop (28).removeFromLeft (90));
+    return "M50,5 L61,39 L97,39 L68,61 L79,95 L50,74 L21,95 L32,61 L3,39 L39,39 Z";
 }
 
 //==============================================================================
 PluginCanvas::PluginCanvas()
 {
     setWantsKeyboardFocus (true);
-    addChildComponent (inspector);
     scopeBuffer.resize ((size_t) scopeSamples, 0.0f);
+
+    menu = std::make_unique<ElementMenu> (*this);
+    addChildComponent (*menu);
+
+    banner = std::make_unique<AiBanner> (*this);
+    addChildComponent (*banner);
+
+    // The zoom, bottom left: Fit, a slider (double-click: 100%) and the percentage.
+    fitButton.setTooltip ("Show the whole window (Ctrl+0)");
+    fitButton.onClick = [this] { fitToView(); };
+
+    zoomSlider.setSliderStyle (juce::Slider::LinearHorizontal);
+    zoomSlider.setRange (minZoom, maxZoom, 0.01);
+    zoomSlider.setTextBoxStyle (juce::Slider::NoTextBox, true, 0, 0);
+    zoomSlider.setDoubleClickReturnValue (true, 1.0);
+    zoomSlider.setValue (1.0, juce::dontSendNotification);
+    zoomSlider.setTooltip ("Zoom (also Ctrl + mouse wheel). Double-click: 100%");
+    zoomSlider.onValueChange = [this]
+    {
+        autoFit = false;
+        setZoom ((float) zoomSlider.getValue());
+    };
+
+    zoomLabel.setFont (Theme::font (12.0f, true));
+    zoomLabel.setJustificationType (juce::Justification::centredLeft);
+    zoomLabel.setColour (juce::Label::textColourId, Theme::muted);
+    zoomLabel.setInterceptsMouseClicks (false, false);
+
+    for (auto* c : std::initializer_list<juce::Component*> { &fitButton, &zoomSlider, &zoomLabel })
+        addChildComponent (c);
+
     startTimerHz (30);
 }
 
 PluginCanvas::~PluginCanvas()
 {
+    *alive = false;
     stopTimer();
+    pictureChooser = nullptr;
+}
+
+void PluginCanvas::setGuiFolder (const juce::File& folder)
+{
+    if (folder == guiFolder)
+        return;
+
+    guiFolder = folder;
+    pictures.clear();
+    dropGhost.reset();
+    select (-1);
+
+    // Each project keeps its own view; one never moved fits the window.
+    autoFit = true;
+    zoom = 1.0f;
+    pan = {};
+    loadView();
+
+    for (auto* c : std::initializer_list<juce::Component*> { &fitButton, &zoomSlider, &zoomLabel })
+        c->setVisible (hasPanel());
+
+    banner->setVisible (false);
+
+    if (autoFit)
+        fitToView();
+    else
+        viewChanged();
 }
 
 void PluginCanvas::setLayout (const GuiLayout& newLayout)
 {
+    const bool sizeChanged = newLayout.width != layout.width || newLayout.height != layout.height;
+
     layout = newLayout;
     renderers.clear();
     meterLevels.clear();
 
+    // Pictures that weren't there may be now.
+    for (auto it = pictures.begin(); it != pictures.end();)
+        it = it->second.isValid() ? std::next (it) : pictures.erase (it);
+
     if (! juce::isPositiveAndBelow (selected, (int) layout.widgets.size()))
         selected = -1;
 
-    select (selected);
+    if (selected < 0 && ! panelSelected)
+        closeMenu();
+    else if (menuOpen)
+        openMenu();   // shows the element's new state
+
+    if (autoFit && sizeChanged)
+        fitToView();
+    else
+        viewChanged();
+
     reportSources();
-    resized();
-    repaint();
 }
 
 void PluginCanvas::setDesignMode (bool shouldDesign)
 {
     design = shouldDesign;
-    select (design ? selected : -1);
+
+    if (! design)
+        select (-1);
+
     repaint();
 }
 
@@ -342,7 +191,9 @@ void PluginCanvas::setParameters (const juce::Array<Param>& newParams)
     for (const auto& p : params)
         values[p.index] = p.value;
 
-    select (selected);
+    if (menuOpen)
+        openMenu();   // the parameter lists
+
     repaint();
 }
 
@@ -350,7 +201,9 @@ void PluginCanvas::setSources (const juce::StringArray& signals, const juce::Str
 {
     signalSources = signals;
     displaySources = displays;
-    select (selected);
+
+    if (menuOpen)
+        openMenu();
 }
 
 void PluginCanvas::edited()
@@ -361,6 +214,7 @@ void PluginCanvas::edited()
     if (onLayoutEdited != nullptr)
         onLayoutEdited();
 
+    layOutOverlays();
     repaint();
 }
 
@@ -387,18 +241,40 @@ void PluginCanvas::reportSources()
     }
 }
 
-void PluginCanvas::select (int index)
+//==============================================================================
+void PluginCanvas::addPrimitive (const Primitive& primitive, std::optional<juce::Point<float>> centre)
 {
-    selected = design && juce::isPositiveAndBelow (index, (int) layout.widgets.size()) ? index : -1;
+    if (! design || ! hasPanel())
+        return;
 
-    if (selected >= 0)
-        inspector.show (layout.widgets[(size_t) selected]);
+    if (primitive.setsBackground())
+    {
+        selectPanel();
+        openMenu();
+        choosePicture (-1);
+        return;
+    }
 
-    inspector.setVisible (selected >= 0);
-    repaint();
+    const auto index = addElement (primitive.makeWidget(), centre);
+
+    // A picture needs its file: ask for it at once.
+    const auto& w = layout.widgets[(size_t) index];
+
+    if (w.type == GuiWidget::Type::image && w.image.isEmpty())
+        choosePicture (index);
 }
 
-void PluginCanvas::addWidget (GuiWidget::Type type)
+juce::Rectangle<int> PluginCanvas::placed (juce::Rectangle<int> bounds, juce::Point<float> centre) const
+{
+    auto b = bounds.withPosition (snapped (centre.x - (float) bounds.getWidth() * 0.5f),
+                                  snapped (centre.y - (float) bounds.getHeight() * 0.5f));
+
+    b.setX (juce::jlimit (0, juce::jmax (0, layout.width - b.getWidth()), b.getX()));
+    b.setY (juce::jlimit (0, juce::jmax (0, layout.height - b.getHeight()), b.getY()));
+    return b;
+}
+
+int PluginCanvas::addElement (GuiWidget w, std::optional<juce::Point<float>> centre)
 {
     auto unusedParam = [this] (const juce::StringArray& avoid)
     {
@@ -406,8 +282,8 @@ void PluginCanvas::addWidget (GuiWidget::Type type)
         {
             bool shown = avoid.contains (p.id);
 
-            for (const auto& w : layout.widgets)
-                shown = shown || w.param == p.id;
+            for (const auto& other : layout.widgets)
+                shown = shown || other.param == p.id;
 
             if (! shown)
                 return p.id;
@@ -425,80 +301,197 @@ void PluginCanvas::addWidget (GuiWidget::Type type)
         return juce::String();
     };
 
-    GuiWidget w;
-    w.type = type;
-    const auto offset = (int) (layout.widgets.size() % 6) * 12;
-    w.bounds = defaultBounds (type, 24 + offset, 24 + offset);
-
-    switch (type)
+    // What the primitive leaves open: the first parameter not shown yet, its name as the
+    // caption, the project's knob look, a source to watch.
+    switch (w.type)
     {
         case GuiWidget::Type::knob:
         case GuiWidget::Type::slider:
         case GuiWidget::Type::toggle:
         case GuiWidget::Type::selector:
-            w.param = unusedParam ({});
+            if (w.param.isEmpty())
+                w.param = unusedParam ({});
 
-            for (const auto& p : params)
-                if (p.id == w.param)
-                    w.label = p.name;
+            if (w.label.isEmpty())
+                for (const auto& p : params)
+                    if (p.id == w.param)
+                        w.label = p.name;
 
-            if (type == GuiWidget::Type::knob)
-                w.style = layout.styles.empty() ? "black" : layout.styles.begin()->first;
+            if (w.type == GuiWidget::Type::knob && w.style.isEmpty())
+                w.style = layout.styles.empty() ? juce::String ("black") : layout.styles.begin()->first;
 
-            if (type == GuiWidget::Type::selector)
+            if (w.type == GuiWidget::Type::selector && w.options.isEmpty())
                 w.options = { "One", "Two", "Three" };
             break;
 
-        case GuiWidget::Type::label:     w.label = "Label"; break;
-        case GuiWidget::Type::group:     w.label = "SECTION"; break;
-        case GuiWidget::Type::meter:     w.source = "plugin.out L"; w.mode = "peak"; w.label = "Level"; break;
-        case GuiWidget::Type::scope:     w.source = "plugin.out L"; w.label = "Scope"; break;
-        case GuiWidget::Type::lamp:      w.source = displaySources.isEmpty() ? juce::String ("plugin.out L") : displaySources[0]; w.label = "Lamp"; break;
+        case GuiWidget::Type::label:     if (w.label.isEmpty()) w.label = "Text"; break;
+        case GuiWidget::Type::group:     if (w.label.isEmpty()) w.label = "SECTION"; break;
+
+        case GuiWidget::Type::meter:
+            if (w.source.isEmpty()) w.source = "plugin.out L";
+            if (w.mode.isEmpty())   w.mode = "peak";
+            break;
+
+        case GuiWidget::Type::scope:
+            if (w.source.isEmpty()) w.source = "plugin.out L";
+            break;
+
+        case GuiWidget::Type::lamp:
+            if (w.source.isEmpty()) w.source = displaySources.isEmpty() ? juce::String ("plugin.out L") : displaySources[0];
+            break;
 
         case GuiWidget::Type::envelope:
-            for (const auto& role : GuiWidget::rolesOf (type))
-                if (const auto id = paramNamed (role); id.isNotEmpty())
-                    w.roles[role] = id;
-
-            w.label = "Envelope";
+            if (w.roles.empty())
+                for (const auto& role : GuiWidget::rolesOf (w.type))
+                    if (const auto id = paramNamed (role); id.isNotEmpty())
+                        w.roles[role] = id;
             break;
 
         case GuiWidget::Type::filter:
-            if (const auto id = paramNamed ("cutoff"); id.isNotEmpty())    w.roles["cutoff"] = id;
-            if (const auto id = paramNamed ("reso"); id.isNotEmpty())      w.roles["resonance"] = id;
-            w.mode = "lowpass";
-            w.label = "Filter";
+            if (w.roles.empty())
+            {
+                if (const auto id = paramNamed ("cutoff"); id.isNotEmpty())    w.roles["cutoff"] = id;
+                if (const auto id = paramNamed ("reso"); id.isNotEmpty())      w.roles["resonance"] = id;
+            }
+
+            if (w.mode.isEmpty())
+                w.mode = "lowpass";
             break;
 
         case GuiWidget::Type::xy:
-        {
-            const auto x = unusedParam ({});
-            const auto y = unusedParam ({ x });
-            if (x.isNotEmpty()) w.roles["x"] = x;
-            if (y.isNotEmpty()) w.roles["y"] = y;
-            w.label = "XY";
+            if (w.roles.empty())
+            {
+                const auto x = unusedParam ({});
+                const auto y = unusedParam ({ x });
+                if (x.isNotEmpty()) w.roles["x"] = x;
+                if (y.isNotEmpty()) w.roles["y"] = y;
+            }
             break;
-        }
 
-        case GuiWidget::Type::shape:     w.path = defaultStar; break;
-        case GuiWidget::Type::preset:    break;
+        case GuiWidget::Type::shape:     if (w.path.isEmpty()) w.path = defaultStarPath(); break;
+        case GuiWidget::Type::preset:
+        case GuiWidget::Type::image:     break;
     }
 
-    // Groups go underneath, everything else on top.
-    if (type == GuiWidget::Type::group)
+    // Centred where it was dropped, or in the middle of what's showing; always inside the window.
+    w.bounds = placed (w.bounds, centre.value_or (toPlugin (viewArea().getCentre())));
+
+    // Frames go underneath, everything else on top.
+    int index = 0;
+
+    if (w.type == GuiWidget::Type::group)
     {
         layout.widgets.insert (layout.widgets.begin(), w);
-        select (0);
     }
     else
     {
         layout.widgets.push_back (w);
-        select ((int) layout.widgets.size() - 1);
+        index = (int) layout.widgets.size() - 1;
     }
 
+    select (index);
+    openMenu();
+    edited();
+    return index;
+}
+
+void PluginCanvas::removeSelected()
+{
+    if (! juce::isPositiveAndBelow (selected, (int) layout.widgets.size()))
+        return;
+
+    layout.widgets.erase (layout.widgets.begin() + selected);
+    select (-1);
     edited();
 }
 
+//==============================================================================
+juce::File PluginCanvas::imagesFolder() const
+{
+    return hasPanel() ? guiFolder.getChildFile (GuiLayout::imagesFolder) : juce::File();
+}
+
+const juce::Image& PluginCanvas::picture (const juce::String& name)
+{
+    static const juce::Image none;
+
+    if (name.isEmpty() || ! hasPanel())
+        return none;
+
+    auto found = pictures.find (name);
+
+    if (found == pictures.end())
+    {
+        const auto file = imagesFolder().getChildFile (name);
+        found = pictures.emplace (name, file.existsAsFile() ? juce::ImageFileFormat::loadFrom (file) : juce::Image()).first;
+    }
+
+    return found->second;
+}
+
+void PluginCanvas::choosePicture (int widgetIndex)
+{
+    if (! hasPanel())
+        return;
+
+    pictureChooser = std::make_unique<juce::FileChooser> (widgetIndex < 0 ? "Choose the background picture" : "Choose a picture",
+                                                          juce::File(), GuiLayout::pictureFiles());
+
+    pictureChooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                                 [safeThis = juce::Component::SafePointer<PluginCanvas> (this), widgetIndex] (const juce::FileChooser& chooser)
+                                 {
+                                     if (safeThis == nullptr)
+                                         return;
+
+                                     const auto file = chooser.getResult();
+
+                                     if (file == juce::File())
+                                         return;
+
+                                     const auto name = GuiLayout::importPicture (file, safeThis->imagesFolder());
+
+                                     if (name.isEmpty())
+                                     {
+                                         juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Couldn't use that picture",
+                                                                                 "Pictures can be PNG, JPEG or GIF files.");
+                                         return;
+                                     }
+
+                                     safeThis->usePicture (widgetIndex, name);
+                                 });
+}
+
+void PluginCanvas::usePicture (int widgetIndex, const juce::String& name)
+{
+    pictures.erase (name);   // read afresh
+
+    if (widgetIndex < 0)
+    {
+        layout.backgroundImage = name;
+    }
+    else if (juce::isPositiveAndBelow (widgetIndex, (int) layout.widgets.size()))
+    {
+        auto& w = layout.widgets[(size_t) widgetIndex];
+        const bool first = w.image.isEmpty();
+        w.image = name;
+
+        // A new picture element takes the picture's own size (made to fit in the window).
+        if (const auto& image = picture (name); first && image.isValid())
+        {
+            const auto scale = juce::jmin (1.0f, (float) layout.width / (float) image.getWidth(), (float) layout.height / (float) image.getHeight());
+            const auto size = juce::Rectangle<int> (juce::jmax (8, juce::roundToInt ((float) image.getWidth() * scale)),
+                                                    juce::jmax (8, juce::roundToInt ((float) image.getHeight() * scale)));
+            w.bounds = placed (size, w.bounds.getCentre().toFloat());
+        }
+    }
+
+    edited();
+
+    if (menuOpen)
+        openMenu();
+}
+
+//==============================================================================
 void PluginCanvas::setPresets (const juce::StringArray& names, int current)
 {
     presetNames = names;
@@ -517,8 +510,8 @@ void PluginCanvas::setKnobStyle (const juce::String& name, const KnobStyle& styl
     if (onLayoutEdited != nullptr)
         onLayoutEdited();
 
-    if (selected >= 0)
-        inspector.show (layout.widgets[(size_t) selected]);
+    if (menuOpen)
+        openMenu();   // the look's name in the list
 
     repaint();
 }
@@ -542,33 +535,6 @@ juce::String PluginCanvas::makeKnobUnique (int widgetIndex)
 }
 
 //==============================================================================
-juce::Rectangle<float> PluginCanvas::panelArea() const
-{
-    // The plugin keeps its own size; it only shrinks to fit. Design mode leaves room for
-    // the panel on the right.
-    auto available = getLocalBounds().reduced (24).toFloat();
-
-    if (design && inspector.isVisible())
-        available.removeFromRight ((float) inspector.getWidth() + 16.0f);
-
-    const auto scale = juce::jmin (1.0f, available.getWidth() / (float) layout.width, available.getHeight() / (float) layout.height);
-    return available.withSizeKeepingCentre ((float) layout.width * scale, (float) layout.height * scale);
-}
-
-juce::Point<float> PluginCanvas::toPlugin (juce::Point<float> view) const
-{
-    const auto area = panelArea();
-    const auto scale = area.getWidth() / (float) layout.width;
-    return (view - area.getTopLeft()) / scale;
-}
-
-juce::Rectangle<float> PluginCanvas::toView (juce::Rectangle<int> plugin) const
-{
-    const auto area = panelArea();
-    const auto scale = area.getWidth() / (float) layout.width;
-    return plugin.toFloat() * scale + area.getTopLeft();
-}
-
 int PluginCanvas::widgetAt (juce::Point<float> plugin, bool interactiveOnly) const
 {
     for (int i = (int) layout.widgets.size(); --i >= 0;)
@@ -715,7 +681,11 @@ void PluginCanvas::timerCallback()
         shown = (w.type == GuiWidget::Type::meter && ! displaySources.contains (w.source)) ? juce::jmax (level, shown * 0.86f) : level;
     }
 
-    repaint (panelArea().toNearestInt().expanded (2));
+    // Only what moves is drawn again: the rest of the window (a big background picture,
+    // say) stays as it is.
+    for (const auto& w : layout.widgets)
+        if (w.isLive())
+            repaint (toView (w.bounds).getSmallestIntegerContainer().expanded (2));
 }
 
 void PluginCanvas::drawLive (juce::Graphics& g, const GuiWidget& w, int index, Part part, float override)
@@ -1250,6 +1220,34 @@ void PluginCanvas::drawWidget (juce::Graphics& g, int index, Part part, float ov
             break;
         }
 
+        case GuiWidget::Type::image:
+        {
+            if (! still)
+                break;
+
+            if (picture (w.image).isValid())
+            {
+                drawPicture (g, w.image, b, w.mode.isNotEmpty() ? w.mode : juce::String ("fit"));
+            }
+            else if (design && ! baking)
+            {
+                // No picture yet: a dashed frame that says how to get one.
+                g.setColour (juce::Colours::black.withAlpha (0.25f));
+                g.fillRect (b);
+                g.setColour (captionColour.withAlpha (0.6f));
+                const float dashes[] { 5.0f, 4.0f };
+
+                for (const auto& edge : { juce::Line<float> (b.getTopLeft(), b.getTopRight()), juce::Line<float> (b.getTopRight(), b.getBottomRight()),
+                                          juce::Line<float> (b.getBottomRight(), b.getBottomLeft()), juce::Line<float> (b.getBottomLeft(), b.getTopLeft()) })
+                    g.drawDashedLine (edge, dashes, 2, 1.0f);
+
+                g.setFont (Theme::font (12.5f));
+                g.drawFittedText (w.image.isNotEmpty() ? "Picture missing: " + w.image : juce::String ("Double-click to choose a picture"),
+                                  b.reduced (6.0f).toNearestInt(), juce::Justification::centred, 3, 0.9f);
+            }
+            break;
+        }
+
         case GuiWidget::Type::meter:
         case GuiWidget::Type::scope:
         case GuiWidget::Type::lamp:
@@ -1276,15 +1274,53 @@ juce::Rectangle<int> PluginCanvas::movingAreaOf (const GuiWidget& w) const
         case GuiWidget::Type::preset:    return w.bounds;
         case GuiWidget::Type::label:
         case GuiWidget::Type::group:
-        case GuiWidget::Type::shape:     break;
+        case GuiWidget::Type::shape:
+        case GuiWidget::Type::image:     break;
     }
 
     return {};
 }
 
+void PluginCanvas::drawPanel (juce::Graphics& g)
+{
+    const auto plugin = juce::Rectangle<float> (0.0f, 0.0f, (float) layout.width, (float) layout.height);
+    g.setGradientFill (juce::ColourGradient (layout.backgroundTop, 0.0f, 0.0f, layout.backgroundBottom, 0.0f, plugin.getBottom(), false));
+    g.fillRect (plugin);
+
+    if (layout.backgroundImage.isNotEmpty())
+        drawPicture (g, layout.backgroundImage, plugin, layout.backgroundMode);
+}
+
+void PluginCanvas::drawPicture (juce::Graphics& g, const juce::String& name, juce::Rectangle<float> area, const juce::String& mode)
+{
+    const auto& image = picture (name);
+
+    if (! image.isValid() || area.isEmpty())
+        return;
+
+    juce::Graphics::ScopedSaveState state (g);
+    g.reduceClipRegion (area.getSmallestIntegerContainer());
+    g.setImageResamplingQuality (juce::Graphics::highResamplingQuality);
+    g.setOpacity (1.0f);
+
+    if (mode == "tile")
+    {
+        g.setTiledImageFill (image, juce::roundToInt (area.getX()), juce::roundToInt (area.getY()), 1.0f);
+        g.fillRect (area);
+        return;
+    }
+
+    const auto placement = mode == "stretch" ? juce::RectanglePlacement (juce::RectanglePlacement::stretchToFit)
+                         : mode == "fit"     ? juce::RectanglePlacement (juce::RectanglePlacement::centred)
+                         : mode == "centre"  ? juce::RectanglePlacement (juce::RectanglePlacement::centred | juce::RectanglePlacement::doNotResize)
+                                             : juce::RectanglePlacement (juce::RectanglePlacement::centred | juce::RectanglePlacement::fillDestination);
+    g.drawImage (image, area, placement);
+}
+
 PluginCanvas::Bake PluginCanvas::bake()
 {
     const juce::ScopedValueSetter<int> noHover (hovered, -1), noActive (active, -1);
+    const juce::ScopedValueSetter<bool> bakingNow (baking, true);
     renderers.clear();
 
     Bake result;
@@ -1292,8 +1328,7 @@ PluginCanvas::Bake PluginCanvas::bake()
 
     {
         juce::Graphics g (result.background);
-        g.setGradientFill (juce::ColourGradient (layout.backgroundTop, 0.0f, 0.0f, layout.backgroundBottom, 0.0f, (float) layout.height, false));
-        g.fillAll();
+        drawPanel (g);
 
         for (int i = 0; i < (int) layout.widgets.size(); ++i)
             drawWidget (g, i, Part::still);
@@ -1333,7 +1368,8 @@ PluginCanvas::Bake PluginCanvas::bake()
             case GuiWidget::Type::envelope:
             case GuiWidget::Type::filter:
             case GuiWidget::Type::xy:
-            case GuiWidget::Type::shape:     break;
+            case GuiWidget::Type::shape:
+            case GuiWidget::Type::image:     break;
         }
 
         if (frames == 0)
@@ -1387,40 +1423,27 @@ PluginCanvas::Bake PluginCanvas::bake()
 
 void PluginCanvas::paint (juce::Graphics& g)
 {
-    // A grid over the whole tab, FlowStone-style: fine lines every 16 px, stronger every 64.
+    // A grid over the whole tab, FlowStone-style; it moves and zooms with the view.
     g.fillAll (Theme::panel);
+    drawGrid (g);
 
-    for (int step : { 16, 64 })
-    {
-        g.setColour (juce::Colours::white.withAlpha (step == 16 ? 0.028f : 0.05f));
-
-        for (int x = step; x < getWidth(); x += step)
-            g.drawVerticalLine (x, 0.0f, (float) getHeight());
-
-        for (int y = step; y < getHeight(); y += step)
-            g.drawHorizontalLine (y, 0.0f, (float) getWidth());
-    }
-
-    // Nothing built or opened yet: just the grid.
-    if (layout.widgets.empty() && layout.styles.empty())
+    if (! hasPanel())
         return;
 
     const auto area = panelArea();
-    const auto scale = area.getWidth() / (float) layout.width;
 
     juce::DropShadow (juce::Colours::black.withAlpha (0.45f), 18, { 0, 6 }).drawForRectangle (g, area.toNearestInt());
 
     {
         juce::Graphics::ScopedSaveState state (g);
         g.reduceClipRegion (area.toNearestInt());
-        g.addTransform (juce::AffineTransform::scale (scale).translated (area.getX(), area.getY()));
+        g.addTransform (juce::AffineTransform::scale (zoom).translated (area.getX(), area.getY()));
 
-        const auto plugin = juce::Rectangle<float> (0.0f, 0.0f, (float) layout.width, (float) layout.height);
-        g.setGradientFill (juce::ColourGradient (layout.backgroundTop, 0.0f, 0.0f, layout.backgroundBottom, 0.0f, plugin.getBottom(), false));
-        g.fillRect (plugin);
+        drawPanel (g);
 
         if (design)
         {
+            const auto plugin = juce::Rectangle<float> (0.0f, 0.0f, (float) layout.width, (float) layout.height);
             g.setColour (juce::Colours::white.withAlpha (0.035f));
 
             for (int x = 16; x < layout.width; x += 16)
@@ -1434,300 +1457,45 @@ void PluginCanvas::paint (juce::Graphics& g)
             drawWidget (g, i);
     }
 
-    g.setColour (design ? Theme::accent.withAlpha (0.55f) : Theme::outline);
-    g.drawRect (area, design ? 1.5f : 1.0f);
+    g.setColour (design ? (panelSelected ? Theme::accent : Theme::accent.withAlpha (0.55f)) : Theme::outline);
+    g.drawRect (area, design ? (panelSelected ? 2.0f : 1.5f) : 1.0f);
 
-    // Which tab, above the window's top-left corner.
-    g.setColour (design ? Theme::accent : Theme::safe);
-    g.setFont (Theme::font (12.0f, true));
-    g.drawText (design ? "EDIT" : "PLAY", juce::Rectangle<float> (area.getX(), area.getY() - 20.0f, 200.0f, 16.0f),
-                juce::Justification::centredLeft, false);
-
-    if (design && selected >= 0)
+    // Which tab, and the window's size, above its top-left corner.
     {
-        const auto box = toView (layout.widgets[(size_t) selected].bounds);
-        g.setColour (Theme::accent);
-        g.drawRect (box.expanded (2.0f), 1.5f);
-        g.fillRect (juce::Rectangle<float> (handleSize, handleSize).withCentre (box.getBottomRight()));
+        const auto tab = juce::String (design ? "EDIT" : "PLAY");
+        const auto font = Theme::font (12.0f, true);
+        const auto caption = juce::Rectangle<float> (area.getX(), area.getY() - 20.0f, 320.0f, 16.0f);
+
+        g.setColour (design ? Theme::accent : Theme::safe);
+        g.setFont (font);
+        g.drawText (tab, caption, juce::Justification::centredLeft, false);
+
+        g.setColour (Theme::muted);
+        g.setFont (Theme::font (12.0f));
+        g.drawText (juce::String (layout.width) + juce::String::fromUTF8 (" \xc3\x97 ") + juce::String (layout.height),
+                    caption.withTrimmedLeft ((float) juce::GlyphArrangement::getStringWidthInt (font, tab) + 10.0f),
+                    juce::Justification::centredLeft, false);
     }
-}
-
-void PluginCanvas::resized()
-{
-    inspector.setBounds (getLocalBounds().reduced (12).removeFromRight (260).withHeight (juce::jmin (getHeight() - 24, 470)));
-}
-
-//==============================================================================
-void PluginCanvas::mouseDown (const juce::MouseEvent& e)
-{
-    grabKeyboardFocus();
-
-    const auto plugin = toPlugin (e.position);
-    dragStart = e.position;
-    changed = false;
-    carried.clear();
 
     if (design)
     {
-        // The selected element's corner handle resizes it.
+        // The window's own corner: drag it to resize the window.
+        const auto grip = panelHandle();
+        g.setColour (panelSelected || drag == Drag::resizePanel ? Theme::accent : Theme::accent.withAlpha (0.7f));
+        juce::Path corner;
+        corner.addTriangle (grip.getTopRight(), grip.getBottomRight(), grip.getBottomLeft());
+        g.fillPath (corner);
+
         if (selected >= 0)
         {
             const auto box = toView (layout.widgets[(size_t) selected].bounds);
-
-            if (juce::Rectangle<float> (handleSize * 1.6f, handleSize * 1.6f).withCentre (box.getBottomRight()).contains (e.position))
-            {
-                resizing = true;
-                startBounds = layout.widgets[(size_t) selected].bounds;
-                return;
-            }
+            g.setColour (Theme::accent);
+            g.drawRect (box.expanded (2.0f), 1.5f);
+            g.fillRect (widgetHandle());
         }
-
-        select (widgetAt (plugin, false));
-
-        if (selected >= 0)
-        {
-            startBounds = layout.widgets[(size_t) selected].bounds;
-
-            if (layout.widgets[(size_t) selected].type == GuiWidget::Type::group)
-                for (int i = 0; i < (int) layout.widgets.size(); ++i)
-                    if (i != selected && startBounds.contains (layout.widgets[(size_t) i].bounds))
-                        carried.push_back ({ i, layout.widgets[(size_t) i].bounds });
-        }
-
-        return;
     }
 
-    active = widgetAt (plugin, true);
-
-    if (active < 0)
-        return;
-
-    const auto& w = layout.widgets[(size_t) active];
-
-    if (w.type == GuiWidget::Type::xy)
-    {
-        setXy (w, plugin);
-        return;
-    }
-
-    if (w.type == GuiWidget::Type::preset)
-    {
-        active = -1;
-
-        if (presetNames.isEmpty() || onPresetChosen == nullptr)
-            return;
-
-        // The arrows step; the middle lists them all.
-        const auto x = (plugin.x - (float) w.bounds.getX()) / (float) juce::jmax (1, w.bounds.getWidth());
-        const auto count = presetNames.size();
-
-        if (x < 0.22f || x > 0.78f)
-        {
-            onPresetChosen (((currentPreset < 0 ? 0 : currentPreset) + (x < 0.22f ? count - 1 : 1)) % count);
-            return;
-        }
-
-        juce::PopupMenu menu;
-
-        for (int i = 0; i < count; ++i)
-            menu.addItem (i + 1, presetNames[i], true, i == currentPreset);
-
-        menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea (localAreaToGlobal (toView (w.bounds).toNearestInt())),
-                            [safeThis = juce::Component::SafePointer<PluginCanvas> (this)] (int choice)
-                            {
-                                if (safeThis != nullptr && choice > 0 && safeThis->onPresetChosen != nullptr)
-                                    safeThis->onPresetChosen (choice - 1);
-                            });
-        return;
-    }
-
-    const auto* p = paramFor (w);
-
-    if (p == nullptr)
-        return;
-
-    startProportion = proportionOf (*p, currentValue (*p));
-
-    if (w.type == GuiWidget::Type::toggle)
-    {
-        setValue (*p, startProportion >= 0.5f ? p->min : p->max);
-    }
-    else if (w.type == GuiWidget::Type::selector)
-    {
-        const auto count = juce::jmax (1, w.options.size() > 0 ? w.options.size() : (int) (p->max - p->min) + 1);
-        const auto cell = (int) ((plugin.x - (float) w.bounds.getX()) / ((float) w.bounds.getWidth() / (float) count));
-        setValue (*p, p->min + (float) juce::jlimit (0, count - 1, cell));
-    }
-    else if (w.type == GuiWidget::Type::slider)
-    {
-        mouseDrag (e);
-    }
-
-    repaint();
-}
-
-void PluginCanvas::mouseDrag (const juce::MouseEvent& e)
-{
-    const auto scale = panelArea().getWidth() / (float) layout.width;
-    const auto delta = (e.position - dragStart) / scale;
-
-    if (design)
-    {
-        if (selected < 0)
-            return;
-
-        auto& w = layout.widgets[(size_t) selected];
-
-        if (resizing)
-        {
-            const auto minW = 12, minH = w.type == GuiWidget::Type::knob ? 12 + GuiLayout::captionHeight : 12;
-            const auto newW = juce::jmax (minW, snapped ((float) startBounds.getWidth() + delta.x));
-            const auto newH = juce::jmax (minH, snapped ((float) startBounds.getHeight() + delta.y));
-
-            // A knob stays round: its size follows the drag, its caption stays under it.
-            w.bounds = w.type == GuiWidget::Type::knob ? startBounds.withSize (newW, newW + GuiLayout::captionHeight)
-                                                       : startBounds.withSize (newW, newH);
-        }
-        else
-        {
-            const auto dx = snapped (delta.x), dy = snapped (delta.y);
-            w.bounds = startBounds.translated (dx, dy);
-
-            for (const auto& [index, bounds] : carried)
-                layout.widgets[(size_t) index].bounds = bounds.translated (dx, dy);
-        }
-
-        changed = true;
-        repaint();
-        return;
-    }
-
-    if (active < 0)
-        return;
-
-    const auto& w = layout.widgets[(size_t) active];
-
-    if (w.type == GuiWidget::Type::xy)
-    {
-        setXy (w, toPlugin (e.position));
-        return;
-    }
-
-    const auto* p = paramFor (w);
-
-    if (p == nullptr)
-        return;
-
-    if (w.type == GuiWidget::Type::knob)
-    {
-        // Up or right turns it up; Shift moves it finely.
-        const auto travel = e.mods.isShiftDown() ? 900.0f : 200.0f;
-        setValue (*p, valueAt (*p, startProportion + (delta.x - delta.y) / travel));
-    }
-    else if (w.type == GuiWidget::Type::slider)
-    {
-        const auto plugin = toPlugin (e.position);
-        const auto area = w.bounds.toFloat().withTrimmedBottom ((float) GuiLayout::captionHeight).reduced (4.0f);
-        const auto t = w.vertical ? (area.getBottom() - plugin.y) / area.getHeight() : (plugin.x - area.getX()) / area.getWidth();
-        setValue (*p, valueAt (*p, t));
-    }
-}
-
-void PluginCanvas::mouseUp (const juce::MouseEvent&)
-{
-    if (design && changed)
-        edited();
-
-    resizing = false;
-    changed = false;
-    active = -1;
-    carried.clear();
-
-    if (design && selected >= 0)
-        inspector.show (layout.widgets[(size_t) selected]);
-
-    repaint();
-}
-
-void PluginCanvas::mouseDoubleClick (const juce::MouseEvent& e)
-{
-    const auto index = widgetAt (toPlugin (e.position), ! design);
-
-    if (index < 0)
-        return;
-
-    const auto& w = layout.widgets[(size_t) index];
-
-    if (design)
-    {
-        if (w.type == GuiWidget::Type::knob && onEditKnob != nullptr)
-            onEditKnob (index);
-
-        return;
-    }
-
-    if (const auto* p = paramFor (w); p != nullptr && (w.type == GuiWidget::Type::knob || w.type == GuiWidget::Type::slider))
-        setValue (*p, p->def);
-}
-
-void PluginCanvas::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
-{
-    if (design)
-        return;
-
-    const auto index = widgetAt (toPlugin (e.position), true);
-
-    if (index < 0)
-        return;
-
-    const auto& w = layout.widgets[(size_t) index];
-
-    if (const auto* p = paramFor (w); p != nullptr && (w.type == GuiWidget::Type::knob || w.type == GuiWidget::Type::slider))
-        setValue (*p, valueAt (*p, proportionOf (*p, currentValue (*p)) + wheel.deltaY * 0.08f));
-}
-
-void PluginCanvas::mouseMove (const juce::MouseEvent& e)
-{
-    const auto index = widgetAt (toPlugin (e.position), ! design);
-
-    if (index != hovered)
-    {
-        hovered = index;
-        repaint();
-    }
-}
-
-void PluginCanvas::mouseExit (const juce::MouseEvent&)
-{
-    hovered = -1;
-    repaint();
-}
-
-bool PluginCanvas::keyPressed (const juce::KeyPress& key)
-{
-    if (! design || selected < 0)
-        return false;
-
-    if (key == juce::KeyPress::deleteKey || key == juce::KeyPress::backspaceKey)
-    {
-        layout.widgets.erase (layout.widgets.begin() + selected);
-        select (-1);
-        edited();
-        return true;
-    }
-
-    const auto step = key.getModifiers().isShiftDown() ? 8 : 1;
-    juce::Point<int> move;
-
-    if (key.isKeyCode (juce::KeyPress::leftKey))  move = { -step, 0 };
-    if (key.isKeyCode (juce::KeyPress::rightKey)) move = { step, 0 };
-    if (key.isKeyCode (juce::KeyPress::upKey))    move = { 0, -step };
-    if (key.isKeyCode (juce::KeyPress::downKey))  move = { 0, step };
-
-    if (move.isOrigin())
-        return false;
-
-    layout.widgets[(size_t) selected].bounds.translate (move.x, move.y);
-    edited();
-    return true;
+    drawDropGhost (g);
+    drawScrollbars (g);
+    drawMinimap (g);
 }

@@ -111,12 +111,6 @@ MainComponent::MainComponent (Settings& s)
     topBar.onRevealProject = [this] { if (project.isOpen()) project.getProjectFile().revealToUser(); };
     topBar.onCloseProject = [this] { project.close(); };
 
-    // Cloud projects: the open project saves itself; any project opens from the cloud.
-    topBar.cloudStatus = [this] { return cloud.getStatusText(); };
-    topBar.cloudAvailable = [this] { return server.isSignedIn() && server.isReady(); };
-    topBar.onSaveToCloud = [this] { cloud.saveNow(); };
-    topBar.onOpenFromCloud = [this] { openFromCloud(); };
-    cloud.onConflict = [this] (const juce::String& updated) { cloudConflict (updated); };
     topBar.recentProjects = [this] { return settings.getRecentProjects(); };
 
     chat.onNewPlugin = [this] { newProject(); };
@@ -159,7 +153,17 @@ MainComponent::MainComponent (Settings& s)
     ai.onTurnFinished = [this] (const juce::String& request)
     {
         recordHistory ("Stella AI: " + (request.length() > 40 ? request.substring (0, 40) + juce::String::fromUTF8 ("\xe2\x80\xa6") : request));
+
+        // A request from an Edit UI menu: its answer shows there too.
+        if (guiRequestPending)
+        {
+            guiRequestPending = false;
+            workspace.showAiReply (lastAnswer());
+        }
     };
+
+    // An edit menu's instruction for Stella AI, about one element of the GUI or the window.
+    workspace.onAskAiAboutGui = [this] (int widgetIndex, const juce::String& instruction) { askAiAboutGui (widgetIndex, instruction); };
 
     // Presets and A/B.
     workspace.onPresetChosen = [this] (int index) { choosePreset (index); };
@@ -195,7 +199,7 @@ MainComponent::MainComponent (Settings& s)
     server.onStateChanged = [this] { connectionChanged(); };
     ai.onChanged = [this] { chat.setConversation (ai.getEntries(), ai.isBusy()); };
 
-    chat.onSend = [this] (const juce::String& request, const juce::Array<juce::File>& files) { ai.send (request, files); };
+    chat.onSend = [this] (const juce::String& request, const juce::Array<juce::File>& files) { sendFromChat (request, files); };
     chat.onStop = [this] { ai.stop(); };
     chat.onRetry = [this] { server.checkNow(); };
     chat.onBuyCredits = [this] { buyCredits(); };
@@ -242,8 +246,6 @@ MainComponent::~MainComponent()
     newProjectDialog = nullptr;
     signOutDialog = nullptr;
     autoLayoutDialog = nullptr;
-    cloudDialog = nullptr;
-    cloud.onConflict = nullptr;
 }
 
 //==============================================================================
@@ -284,8 +286,8 @@ void MainComponent::projectChanged()
 
             workspace.getSchematic().setPositions (juce::JSON::parse (project.getGuiFolder().getChildFile ("schematic.json"))
                                                        .getProperty ("positions", {}));
+            workspace.setGuiFolder (project.getGuiFolder());
             loadLayout (false);
-            cloud.projectChanged();
 
             history.reset (project.getFolder());
             presets.load (project.getFolder());
@@ -307,8 +309,8 @@ void MainComponent::projectChanged()
         builtProjectId.clear();
         preview.unload();
         refreshSchematic();
+        workspace.setGuiFolder ({});
         workspace.setLayout ({});
-        cloud.projectChanged();
 
         history.reset ({});
         presets.presets.clear();
@@ -629,6 +631,101 @@ void MainComponent::saveLayoutSoon()
     });
 }
 
+void MainComponent::askAiAboutGui (int widgetIndex, const juce::String& instruction)
+{
+    if (! project.isOpen() || instruction.trim().isEmpty())
+        return;
+
+    if (ai.isBusy())
+    {
+        workspace.showAiReply ("I'm still working on the last request. Send this again when I'm done.");
+        return;
+    }
+
+    // Stella AI gets the element as it is in gui/layout.json; the conversation shows the
+    // request in plain words.
+    const auto& layout = workspace.getLayout();
+    juce::String context, shown, what;
+
+    if (juce::isPositiveAndBelow (widgetIndex, (int) layout.widgets.size()))
+    {
+        const auto& w = layout.widgets[(size_t) widgetIndex];
+        const auto kind = GuiLayout::typeName (w.type);
+        const auto name = w.type == GuiWidget::Type::image ? w.image : w.label;
+
+        context = "About one element of the plugin's GUI: element " + juce::String (widgetIndex + 1) + " of " + juce::String ((int) layout.widgets.size())
+                + " in gui/layout.json's widgets list (the " + kind + (name.isNotEmpty() ? " \"" + name + "\"" : juce::String()) + "):\n"
+                + juce::JSON::toString (GuiLayout::widgetToVar (w), true)
+                + "\nChange that element (and only what's needed around it) with set_layout, keeping everything else as it is. "
+                  "The user's words about it:\n" + instruction.trim();
+
+        shown = "The " + kind + (name.isNotEmpty() ? " \"" + name + "\"" : juce::String()) + ": " + instruction.trim();
+        what = "the " + kind + (name.isNotEmpty() ? " \"" + name + "\"" : juce::String());
+    }
+    else
+    {
+        context = "About the plugin's whole window (gui/layout.json: " + juce::String (layout.width) + " x " + juce::String (layout.height)
+                + (layout.backgroundImage.isNotEmpty() ? ", background picture " + layout.backgroundImage : juce::String())
+                + "). Change it with set_layout, keeping what the user arranged unless they ask otherwise. The user's words about it:\n"
+                + instruction.trim();
+
+        shown = "The plugin window: " + instruction.trim();
+        what = "the plugin window";
+    }
+
+    ai.send (context, {}, shown);
+
+    if (ai.isBusy())
+    {
+        guiRequestPending = true;
+        workspace.showAiWorking (what);
+    }
+    else
+    {
+        workspace.showAiReply (lastAnswer());   // it couldn't go (no connection, no credits...)
+    }
+}
+
+void MainComponent::sendFromChat (const juce::String& request, const juce::Array<juce::File>& files)
+{
+    // Pictures sent with a request also go into the project, so Stella AI can use them in
+    // the GUI (a background, a logo...).
+    juce::StringArray saved;
+
+    if (project.isOpen())
+        for (const auto& file : files)
+            if (GuiLayout::isPicture (file))
+                if (const auto name = GuiLayout::importPicture (file, project.getGuiFolder().getChildFile (GuiLayout::imagesFolder)); name.isNotEmpty())
+                    saved.add (name);
+
+    if (saved.isEmpty())
+    {
+        ai.send (request, files);
+        return;
+    }
+
+    ai.send (request + "\n\n(The attached pictures are also saved in the project as gui/images/" + saved.joinIntoString (", gui/images/")
+                 + ": the GUI can use them by those names.)",
+             files, request);
+}
+
+juce::String MainComponent::lastAnswer() const
+{
+    // The newest answer or note since the user's last request.
+    const auto& entries = ai.getEntries();
+
+    for (auto it = entries.rbegin(); it != entries.rend(); ++it)
+    {
+        if (it->kind == StellaAi::Entry::Kind::user)
+            break;
+
+        if (it->kind == StellaAi::Entry::Kind::ai || it->kind == StellaAi::Entry::Kind::notice)
+            return it->text;
+    }
+
+    return "Done.";
+}
+
 void MainComponent::autoLayout()
 {
     if (! project.isOpen() || preview.getParameters().isEmpty())
@@ -750,153 +847,6 @@ void MainComponent::showLog (const juce::String& title, const juce::String& text
     logWindow->centreAroundComponent (this, logWindow->getWidth(), logWindow->getHeight());
     logWindow->setVisible (true);
     logWindow->toFront (true);
-}
-
-//==============================================================================
-void MainComponent::openFromCloud()
-{
-    cloud.list ([safeThis = juce::Component::SafePointer<MainComponent> (this)] (const juce::Result& result, const juce::Array<CloudProjects::Entry>& entries)
-    {
-        if (safeThis == nullptr)
-            return;
-
-        if (result.failed())
-        {
-            safeThis->showError ("Couldn't reach the cloud", result.getErrorMessage());
-            return;
-        }
-
-        if (entries.isEmpty())
-        {
-            safeThis->showError ("Nothing in the cloud yet", "Projects go to the cloud by themselves while you're signed in. Open one on this computer first.");
-            return;
-        }
-
-        juce::PopupMenu menu;
-        menu.addSectionHeader ("Your projects in the cloud");
-
-        for (int i = 0; i < entries.size(); ++i)
-        {
-            const auto& e = entries.getReference (i);
-            const auto when = juce::Time::fromISO8601 (e.updated);
-            menu.addItem (i + 1, e.name + juce::String::fromUTF8 ("  \xc2\xb7  ")
-                                     + Project::kindDisplayName (Project::kindFromString (e.kind))
-                                     + juce::String::fromUTF8 ("  \xc2\xb7  ") + when.toString (true, true, false, true));
-        }
-
-        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&safeThis->topBar),
-                            [safeThis, entries] (int choice)
-                            {
-                                if (safeThis == nullptr || choice <= 0 || choice > entries.size())
-                                    return;
-
-                                const auto& entry = entries.getReference (choice - 1);
-                                const auto projects = safeThis->settings.getProjectsFolder();
-                                const auto legal = juce::File::createLegalFileName (entry.name);
-
-                                // The same project on this computer: replace it (after asking). A different
-                                // project with that name: a folder of its own.
-                                auto folder = projects.getChildFile (legal);
-
-                                for (int n = 2; folder.isDirectory(); ++n)
-                                {
-                                    const auto info = juce::JSON::parse (folder.getChildFile ("project.stella"));
-
-                                    if (info.getProperty ("uuid", {}).toString() == entry.uuid || ! folder.getChildFile ("project.stella").existsAsFile())
-                                        break;
-
-                                    folder = projects.getChildFile (legal + " " + juce::String (n));
-                                }
-
-                                if (! folder.getChildFile ("project.stella").existsAsFile())
-                                {
-                                    safeThis->downloadFromCloud (entry, folder);
-                                    return;
-                                }
-
-                                safeThis->cloudDialog = std::make_unique<juce::AlertWindow> ("Replace this computer's copy?",
-                                    "\"" + entry.name + "\" is on this computer too. Replace it with the cloud copy?",
-                                    juce::MessageBoxIconType::NoIcon, safeThis.getComponent());
-                                safeThis->cloudDialog->addButton ("Replace", 1, juce::KeyPress (juce::KeyPress::returnKey));
-                                safeThis->cloudDialog->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
-                                safeThis->cloudDialog->enterModalState (true, juce::ModalCallbackFunction::create ([safeThis, entry, folder] (int answer)
-                                {
-                                    if (safeThis == nullptr)
-                                        return;
-
-                                    juce::MessageManager::callAsync ([safeThis] { if (safeThis != nullptr) safeThis->cloudDialog = nullptr; });
-
-                                    if (answer == 1)
-                                        safeThis->downloadFromCloud (entry, folder);
-                                }), false);
-                            });
-    });
-}
-
-void MainComponent::downloadFromCloud (const CloudProjects::Entry& entry, const juce::File& folder)
-{
-    cloud.download (entry.uuid, folder, [safeThis = juce::Component::SafePointer<MainComponent> (this), folder] (const juce::Result& result)
-    {
-        if (safeThis == nullptr)
-            return;
-
-        if (result.failed())
-        {
-            safeThis->showError ("Couldn't open it from the cloud", result.getErrorMessage());
-            return;
-        }
-
-        const bool same = safeThis->project.isOpen() && safeThis->project.getFolder() == folder;
-        safeThis->openProjectFile (folder.getChildFile ("project.stella"));
-
-        if (same)
-        {
-            // The same project with new files: rebuild what shows them.
-            safeThis->loadLayout (false);
-            safeThis->refreshSchematic();
-            safeThis->buildPlugin();
-        }
-
-        safeThis->cloud.projectChanged();
-    });
-}
-
-void MainComponent::cloudConflict (const juce::String& cloudUpdated)
-{
-    const auto when = juce::Time::fromISO8601 (cloudUpdated);
-
-    cloudDialog = std::make_unique<juce::AlertWindow> ("Changed on another computer",
-        "This project was saved to the cloud from another computer"
-            + (cloudUpdated.isNotEmpty() ? " (" + when.toString (true, true, false, true) + ")" : juce::String())
-            + " since this computer last saved it. Which copy do you want to keep?",
-        juce::MessageBoxIconType::NoIcon, this);
-    cloudDialog->addButton ("Keep this computer's copy", 1);
-    cloudDialog->addButton ("Use the cloud copy", 2);
-    cloudDialog->addButton ("Decide later", 0, juce::KeyPress (juce::KeyPress::escapeKey));
-
-    cloudDialog->enterModalState (true, juce::ModalCallbackFunction::create (
-        [safeThis = juce::Component::SafePointer<MainComponent> (this)] (int answer)
-        {
-            if (safeThis == nullptr)
-                return;
-
-            juce::MessageManager::callAsync ([safeThis] { if (safeThis != nullptr) safeThis->cloudDialog = nullptr; });
-
-            if (! safeThis->project.isOpen())
-                return;
-
-            if (answer == 1)
-            {
-                safeThis->cloud.saveNow (true);
-            }
-            else if (answer == 2)
-            {
-                CloudProjects::Entry entry;
-                entry.uuid = safeThis->project.getInfo().uuid;
-                entry.name = safeThis->project.getInfo().name;
-                safeThis->downloadFromCloud (entry, safeThis->project.getFolder());
-            }
-        }), false);
 }
 
 //==============================================================================

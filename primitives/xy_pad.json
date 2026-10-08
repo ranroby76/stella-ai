@@ -1,0 +1,12 @@
+{
+  "name": "XY pad",
+  "category": "Controls",
+  "order": 40,
+  "icon": "xy",
+  "description": "Moves two parameters at once with one dot.",
+  "widget": {
+    "type": "xy",
+    "w": 160,
+    "h": 180
+  }
+}

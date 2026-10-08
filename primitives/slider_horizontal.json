@@ -1,0 +1,13 @@
+{
+  "name": "Horizontal slider",
+  "category": "Controls",
+  "order": 21,
+  "icon": "slider_horizontal",
+  "description": "A slider that moves left and right.",
+  "widget": {
+    "type": "slider",
+    "orientation": "horizontal",
+    "w": 170,
+    "h": 46
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "Filter curve",
+  "category": "Displays",
+  "order": 150,
+  "icon": "filter",
+  "description": "Draws the filter's shape as it moves.",
+  "widget": {
+    "type": "filter",
+    "w": 220,
+    "h": 120,
+    "mode": "lowpass",
+    "label": "Filter"
+  }
+}

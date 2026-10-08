@@ -1,0 +1,12 @@
+{
+  "name": "Vertical slider",
+  "category": "Controls",
+  "order": 20,
+  "icon": "slider_vertical",
+  "description": "A fader that moves up and down.",
+  "widget": {
+    "type": "slider",
+    "w": 32,
+    "h": 150
+  }
+}
