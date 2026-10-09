@@ -379,6 +379,12 @@ Workspace::Workspace()
         if (onParameterChanged != nullptr)
             onParameterChanged (index, value);
     };
+    pluginView.canvas.onNote = [this] (int note, float velocity)
+    {
+        if (onNote != nullptr)
+            onNote (note, velocity);
+    };
+    pluginView.canvas.isNoteDown = [this] (int note) { return isNoteDown != nullptr && isNoteDown (note); };
 
     // The tabs are picked in the top bar; one page shows at a time.
     addChildComponent (pluginView);

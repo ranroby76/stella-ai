@@ -73,7 +73,7 @@ private:
     juce::TextButton closeButton;
 
     // An element's rows.
-    juce::ComboBox type, param, source, mode, style, pictureMode;
+    juce::ComboBox type, param, source, mode, style, pictureMode, lowKey, highKey;
     juce::ComboBox roles[4];
     juce::TextEditor label, options, textSize;
     juce::ToggleButton boldToggle { "Bold" };

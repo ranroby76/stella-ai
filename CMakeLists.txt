@@ -66,6 +66,7 @@ juce_add_binary_data(StellaRuntimeData
         src/stella_gui.h
         src/stella_gui.cpp
         src/stella_gui_win32.cpp
+        src/stella_keys.h
         src/stb_image.h
         src/stella_builder_guide.md)
 
@@ -116,6 +117,7 @@ target_sources(StellaAIStudio PRIVATE
     src/SchematicView.cpp
     src/GuiLayout.h
     src/GuiLayout.cpp
+    src/stella_keys.h
     src/PluginCanvas.h
     src/PluginCanvas.cpp
     src/PluginCanvasMenu.h

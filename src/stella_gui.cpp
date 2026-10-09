@@ -4,6 +4,7 @@
 // control behaviour as the studio's Play mode.
 
 #include "stella_gui.h"
+#include "stella_keys.h"
 
 #include <algorithm>
 #include <cmath>
@@ -241,7 +242,10 @@ namespace stella::gui
         scopeBuffer.assign (2048, 0.0f);
     }
 
-    Editor::~Editor() = default;
+    Editor::~Editor()
+    {
+        releaseKey();
+    }
 
     //==========================================================================
     float Editor::proportionOf (int param) const
@@ -273,7 +277,8 @@ namespace stella::gui
         {
             const auto& w = widgets[i];
             const bool interactive = w.kind == Kind::knob || w.kind == Kind::slider || w.kind == Kind::toggle
-                                  || w.kind == Kind::selector || w.kind == Kind::xy || w.kind == Kind::preset;
+                                  || w.kind == Kind::selector || w.kind == Kind::xy || w.kind == Kind::preset
+                                  || w.kind == Kind::keyboard;
 
             if (interactive && x >= w.x && y >= w.y && x < w.x + w.w && y < w.y + w.h)
                 return i;
@@ -381,9 +386,43 @@ namespace stella::gui
                 break;
             }
 
+            case Kind::keyboard:
+                active = index;
+                playKey (index, x, y);
+                break;
+
             case Kind::meter: case Kind::lamp: case Kind::scope: case Kind::envelope: case Kind::filter:
                 break;
         }
+    }
+
+    void Editor::playKey (int index, int x, int y)
+    {
+        const auto& w = widgets[index];
+        const auto px = (float) x + 0.5f, py = (float) y + 0.5f;
+        const auto note = keys::noteAt (px, py, w.mode, w.count, (float) w.x, (float) w.y, (float) w.w, (float) w.h);
+
+        if (note == heldNote && index == heldKeyboard)
+            return;
+
+        releaseKey();
+
+        if (note < 0)
+            return;
+
+        heldNote = note;
+        heldKeyboard = index;
+        host.playNote (note, keys::velocityAt (py, keys::keyOf (note, w.mode, w.count, (float) w.x, (float) w.y, (float) w.w, (float) w.h)));
+    }
+
+    void Editor::releaseKey()
+    {
+        if (heldNote < 0)
+            return;
+
+        const auto note = heldNote;
+        heldNote = heldKeyboard = -1;
+        host.playNote (note, 0.0f);
     }
 
     void Editor::applyPreset (int index)
@@ -418,6 +457,13 @@ namespace stella::gui
         const auto& w = widgets[active];
         const auto& b = bound[(size_t) active];
 
+        // Sliding across the keys plays each in turn; off the keyboard, nothing plays.
+        if (w.kind == Kind::keyboard)
+        {
+            playKey (active, x, y);
+            return;
+        }
+
         if (w.kind == Kind::knob)
         {
             // Up or right turns it up; fine moves go slower.
@@ -432,8 +478,16 @@ namespace stella::gui
 
     void Editor::mouseUp()
     {
+        releaseKey();
+
         if (active < 0)
             return;
+
+        if (widgets[active].kind == Kind::keyboard)
+        {
+            active = -1;
+            return;
+        }
 
         const auto& b = bound[(size_t) active];
 
@@ -633,6 +687,60 @@ namespace stella::gui
         canvas.circle (dx, dy, 5.5f, w.colour, 1.0f);
     }
 
+    void Editor::drawKeyboard (std::uint32_t* pixels, const Widget& w, int index)
+    {
+        // The keys at rest are in the background; the ones that are down are drawn here,
+        // the way the studio draws them.
+        const auto low = w.mode, high = w.count;
+        const auto x0 = (float) w.x, y0 = (float) w.y, kw = (float) w.w, kh = (float) w.h;
+        Canvas canvas { pixels, width, height };
+
+        auto isDown = [&] (int note)
+        {
+            return (note == heldNote && index == heldKeyboard) || host.isNoteDown (note);
+        };
+
+        bool whiteDown = false;
+
+        for (int note = low; note <= high; ++note)
+        {
+            if (keys::isBlack (note) || ! isDown (note))
+                continue;
+
+            const auto k = keys::keyOf (note, low, high, x0, y0, kw, kh);
+            canvas.fillRect (k.x + 0.5f, k.y, k.x + k.w - 0.5f, k.y + k.h, w.colour, 0.55f);
+            whiteDown = true;
+        }
+
+        // The black keys lie on top: as the background has them, over a white key that went down.
+        if (whiteDown && (int) background.pixels.size() == width * height)
+        {
+            for (int note = low; note <= high; ++note)
+            {
+                if (! keys::isBlack (note))
+                    continue;
+
+                const auto k = keys::keyOf (note, low, high, x0, y0, kw, kh);
+                const auto left = std::max (0, (int) std::floor (k.x)), right = std::min (width, (int) std::ceil (k.x + k.w));
+                const auto top = std::max (0, (int) std::floor (k.y)), bottom = std::min (height, (int) std::ceil (k.y + k.h));
+
+                for (int y = top; y < bottom && right > left; ++y)
+                    std::memcpy (pixels + (size_t) y * (size_t) width + (size_t) left,
+                                 background.pixels.data() + (size_t) y * (size_t) width + (size_t) left,
+                                 sizeof (std::uint32_t) * (size_t) (right - left));
+            }
+        }
+
+        for (int note = low; note <= high; ++note)
+        {
+            if (! keys::isBlack (note) || ! isDown (note))
+                continue;
+
+            const auto k = keys::keyOf (note, low, high, x0, y0, kw, kh);
+            canvas.fillRect (k.x, k.y, k.x + k.w, k.y + k.h, w.colour, 0.8f);
+        }
+    }
+
     //==========================================================================
     void Editor::render (std::uint32_t* pixels)
     {
@@ -691,6 +799,7 @@ namespace stella::gui
                 case Kind::envelope:
                 case Kind::filter:    drawCurve (pixels, w, b); break;
                 case Kind::xy:        drawXy (pixels, w, b); break;
+                case Kind::keyboard:  drawKeyboard (pixels, w, i); break;
             }
         }
     }

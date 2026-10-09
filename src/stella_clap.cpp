@@ -103,6 +103,9 @@ namespace
         std::array<GuiEvent, 1024> guiEvents {};
         std::atomic<std::uint32_t> guiHead { 0 }, guiTail { 0 };
 
+        // The GUI keyboard's notes, and the notes sounding (for the keyboard to show).
+        stella::gui::Notes guiNotes;
+
         int indexOf (clap_id id) const
         {
             for (size_t i = 0; i < ids.size(); ++i)
@@ -264,6 +267,13 @@ namespace
                 destination[i] = slot >= 0 && i < count && age <= write ? scopeRing[(size_t) slot][(write - age) % (std::uint32_t) scopeSize] : 0.0f;
             }
         }
+
+        void playNote (int note, float velocity) override
+        {
+            guiNotes.push (note, velocity > 0.0f ? std::min (127, std::max (1, (int) std::lround (velocity * 127.0f))) : 0);
+        }
+
+        bool isNoteDown (int note) override    { return guiNotes.isDown (note); }
 
         void applyParamEvent (const clap_event_header_t* header)
         {
@@ -570,6 +580,7 @@ namespace
     void pluginDeactivate (const clap_plugin_t* plugin)
     {
         self (plugin)->active = false;
+        self (plugin)->guiNotes.clear();
     }
 
     bool pluginStartProcessing (const clap_plugin_t*)  { return true; }
@@ -617,6 +628,21 @@ namespace
             const auto frames = (total - start) < p->maxFrames ? (total - start) : p->maxFrames;
             uint32_t count = 0;
 
+            // The GUI's keyboard: its notes come first, at the start of the block.
+            if (start == 0)
+            {
+                int note = 0, velocity = 0;
+
+                while (p->guiNotes.pop (note, velocity))
+                {
+                    if (count >= (uint32_t) stella::maxEvents)
+                        continue;
+
+                    shared.events[count++] = { 0, (std::uint8_t) (velocity > 0 ? 0x90 : 0x80), (std::uint8_t) note, (std::uint8_t) velocity, 0 };
+                    p->guiNotes.sounding (note, velocity > 0);
+                }
+            }
+
             // This chunk's events: notes and MIDI to the runtime, parameter changes to the values.
             while (nextEvent < numEvents)
             {
@@ -649,6 +675,7 @@ namespace
 
                         shared.events[count++] = { frame, (std::uint8_t) ((on ? 0x90 : 0x80) | channel), (std::uint8_t) note->key,
                                                    (std::uint8_t) (on ? velocity : 0), 0 };
+                        p->guiNotes.sounding (note->key, on);
                         break;
                     }
 
@@ -657,7 +684,14 @@ namespace
                         const auto* midi = reinterpret_cast<const clap_event_midi_t*> (header);
 
                         if (count < (uint32_t) stella::maxEvents && midi->data[0] < 0xf0)
+                        {
                             shared.events[count++] = { frame, midi->data[0], midi->data[1], midi->data[2], 0 };
+
+                            const auto type = midi->data[0] & 0xf0;
+
+                            if (type == 0x90 || type == 0x80)
+                                p->guiNotes.sounding (midi->data[1] & 0x7f, type == 0x90 && midi->data[2] > 0);
+                        }
                         break;
                     }
 

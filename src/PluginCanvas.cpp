@@ -5,6 +5,7 @@
 #include "PluginCanvas.h"
 #include "PluginCanvasMenu.h"
 #include "StellaLookAndFeel.h"
+#include "stella_keys.h"
 
 namespace
 {
@@ -16,7 +17,7 @@ namespace
 //==============================================================================
 bool PluginCanvas::isInteractive (const GuiWidget& w)
 {
-    return w.isControl() || w.type == GuiWidget::Type::xy || w.type == GuiWidget::Type::preset;
+    return w.isControl() || w.type == GuiWidget::Type::xy || w.type == GuiWidget::Type::preset || w.type == GuiWidget::Type::keyboard;
 }
 
 juce::String PluginCanvas::typeDisplayName (GuiWidget::Type type)
@@ -38,6 +39,7 @@ juce::String PluginCanvas::typeDisplayName (GuiWidget::Type type)
         case GuiWidget::Type::shape:     return "Shape";
         case GuiWidget::Type::preset:    return "Preset browser";
         case GuiWidget::Type::image:     return "Picture";
+        case GuiWidget::Type::keyboard:  return "Keyboard";
     }
 
     return "Element";
@@ -62,6 +64,7 @@ juce::Rectangle<int> PluginCanvas::defaultBounds (GuiWidget::Type type, int x, i
         case GuiWidget::Type::shape:     return { x, y, 60, 60 };
         case GuiWidget::Type::preset:    return { x, y, 200, 28 };
         case GuiWidget::Type::image:     return { x, y, 160, 120 };
+        case GuiWidget::Type::keyboard:  return { x, y, 600, 90 };
     }
 
     return { x, y, 60, 60 };
@@ -149,6 +152,7 @@ void PluginCanvas::setLayout (const GuiLayout& newLayout)
 {
     const bool sizeChanged = newLayout.width != layout.width || newLayout.height != layout.height;
 
+    releaseKey();   // its keyboard may be gone, or elsewhere now
     layout = newLayout;
     meterLevels.clear();
 
@@ -174,6 +178,7 @@ void PluginCanvas::setLayout (const GuiLayout& newLayout)
 
 void PluginCanvas::setDesignMode (bool shouldDesign)
 {
+    releaseKey();
     design = shouldDesign;
 
     if (! design)
@@ -367,6 +372,11 @@ int PluginCanvas::addElement (GuiWidget w, std::optional<juce::Point<float>> cen
             break;
 
         case GuiWidget::Type::shape:     if (w.path.isEmpty()) w.path = defaultStarPath(); break;
+
+        case GuiWidget::Type::keyboard:
+            stella::keys::normalise (w.lowNote, w.highNote);
+            break;
+
         case GuiWidget::Type::preset:
         case GuiWidget::Type::image:     break;
     }
@@ -703,12 +713,36 @@ juce::Rectangle<int> PluginCanvas::knobSquare (const GuiWidget& w) const
 //==============================================================================
 void PluginCanvas::timerCallback()
 {
+    if (! isShowing())
+        return;
+
+    // Keyboards light up for the notes that sound: the mouse's, a MIDI keyboard's, the host's.
+    if (isNoteDown != nullptr)
+    {
+        std::bitset<128> down;
+
+        for (const auto& w : layout.widgets)
+            if (w.type == GuiWidget::Type::keyboard)
+                for (int note = juce::jmax (0, w.lowNote); note <= juce::jmin (127, w.highNote); ++note)
+                    if (isNoteDown (note))
+                        down.set ((size_t) note);
+
+        if (down != notesShown)
+        {
+            notesShown = down;
+
+            for (const auto& w : layout.widgets)
+                if (w.type == GuiWidget::Type::keyboard)
+                    repaint (toView (w.bounds).getSmallestIntegerContainer().expanded (2));
+        }
+    }
+
     bool live = false;
 
     for (const auto& w : layout.widgets)
         live = live || w.isLive();
 
-    if (! live || ! isShowing() || readLevel == nullptr)
+    if (! live || readLevel == nullptr)
         return;
 
     // Each source is read once per frame: a peak is "the highest since the last read".
@@ -1016,6 +1050,12 @@ void PluginCanvas::drawWidget (juce::Graphics& g, int index, Part part, float ov
         return;
     }
 
+    if (w.type == GuiWidget::Type::keyboard)
+    {
+        drawKeyboard (g, w, index, part);
+        return;
+    }
+
     const bool still = part != Part::moving, moving = part != Part::still;
     const auto* p = paramFor (w);
     const auto value = p != nullptr ? currentValue (*p) : 0.0f;
@@ -1248,8 +1288,164 @@ void PluginCanvas::drawWidget (juce::Graphics& g, int index, Part part, float ov
         case GuiWidget::Type::lamp:
         case GuiWidget::Type::envelope:
         case GuiWidget::Type::filter:
+        case GuiWidget::Type::keyboard:
             break;   // drawn above
     }
+}
+
+void PluginCanvas::drawKeyboardAtRest (juce::Graphics& g, const GuiWidget& w)
+{
+    const auto b = w.bounds.toFloat();
+    const auto low = w.lowNote, high = w.highNote;
+
+    auto keyArea = [&] (int note)
+    {
+        const auto k = stella::keys::keyOf (note, low, high, b.getX(), b.getY(), b.getWidth(), b.getHeight());
+        return juce::Rectangle<float> (k.x, k.y, k.w, k.h);
+    };
+
+    // The gaps between the white keys show the dark bed they sit in.
+    g.setColour (juce::Colour (0xff111113));
+    g.fillRect (b);
+
+    for (int note = low; note <= high; ++note)
+    {
+        if (stella::keys::isBlack (note))
+            continue;
+
+        const auto key = keyArea (note).reduced (0.5f, 0.0f);
+        juce::ColourGradient ivory (juce::Colour (0xffcfcac0), key.getX(), key.getY(), juce::Colour (0xfffbfaf6), key.getX(), key.getBottom(), false);
+        ivory.addColour (0.18, juce::Colour (0xffefece5));
+        g.setGradientFill (ivory);
+        g.fillRoundedRectangle (key.withTrimmedBottom (1.0f), 2.0f);
+
+        // The front lip, a shade darker.
+        g.setColour (juce::Colour (0xffd8d3c9));
+        g.fillRect (key.withTop (key.getBottom() - juce::jmax (2.0f, key.getHeight() * 0.05f)).withTrimmedBottom (1.0f));
+    }
+
+    for (int note = low; note <= high; ++note)
+    {
+        if (! stella::keys::isBlack (note))
+            continue;
+
+        const auto key = keyArea (note);
+        g.setGradientFill (juce::ColourGradient (juce::Colour (0xff2c2c31), key.getX(), key.getY(), juce::Colour (0xff09090b), key.getX(), key.getBottom(), false));
+        g.fillRoundedRectangle (key, 1.5f);
+
+        // Its top face, lit from above.
+        const auto face = key.reduced (key.getWidth() * 0.14f, 0.0f).withTrimmedBottom (key.getHeight() * 0.12f);
+        g.setGradientFill (juce::ColourGradient (juce::Colour (0xff1b1b1f), face.getX(), face.getY(), juce::Colour (0xff3d3d44), face.getX(), face.getBottom(), false));
+        g.fillRoundedRectangle (face, 1.0f);
+    }
+
+    // The felt strip's shadow along the top.
+    const auto shadow = b.withHeight (juce::jmax (4.0f, b.getHeight() * 0.08f));
+    g.setGradientFill (juce::ColourGradient (juce::Colours::black.withAlpha (0.55f), shadow.getX(), shadow.getY(),
+                                             juce::Colours::transparentBlack, shadow.getX(), shadow.getBottom(), false));
+    g.fillRect (shadow);
+}
+
+void PluginCanvas::drawKeyboard (juce::Graphics& g, const GuiWidget& w, int index, Part part)
+{
+    if (part != Part::moving)
+        drawKeyboardAtRest (g, w);
+
+    // The keys that are down (never baked: the plugin draws them live, the same way).
+    if (part == Part::still || baking)
+        return;
+
+    const auto b = w.bounds.toFloat();
+    const auto low = w.lowNote, high = w.highNote;
+    const auto accent = w.colour.isTransparent() ? defaultAccent : w.colour;
+
+    auto isDown = [&] (int note)
+    {
+        return (note == heldNote && index == heldKeyboard) || (note >= 0 && note < 128 && notesShown[(size_t) note]);
+    };
+
+    auto keyArea = [&] (int note)
+    {
+        const auto k = stella::keys::keyOf (note, low, high, b.getX(), b.getY(), b.getWidth(), b.getHeight());
+        return juce::Rectangle<float> (k.x, k.y, k.w, k.h);
+    };
+
+    bool whiteDown = false;
+
+    for (int note = low; note <= high; ++note)
+    {
+        if (stella::keys::isBlack (note) || ! isDown (note))
+            continue;
+
+        g.setColour (accent.withAlpha (0.55f));
+        g.fillRect (keyArea (note).reduced (0.5f, 0.0f));
+        whiteDown = true;
+    }
+
+    // The black keys lie on top: as they were, over a white key that went down.
+    if (whiteDown)
+    {
+        juce::RectangleList<int> blacks;
+
+        for (int note = low; note <= high; ++note)
+            if (stella::keys::isBlack (note))
+                blacks.addWithoutMerging (keyArea (note).getSmallestIntegerContainer());
+
+        juce::Graphics::ScopedSaveState state (g);
+        g.reduceClipRegion (blacks);
+        drawKeyboardAtRest (g, w);
+    }
+
+    for (int note = low; note <= high; ++note)
+    {
+        if (! stella::keys::isBlack (note) || ! isDown (note))
+            continue;
+
+        g.setColour (accent.withAlpha (0.8f));
+        g.fillRect (keyArea (note));
+    }
+}
+
+void PluginCanvas::playKey (int widgetIndex, juce::Point<float> plugin)
+{
+    if (! juce::isPositiveAndBelow (widgetIndex, (int) layout.widgets.size()))
+        return;
+
+    const auto& w = layout.widgets[(size_t) widgetIndex];
+    const auto b = w.bounds.toFloat();
+    const auto note = stella::keys::noteAt (plugin.x, plugin.y, w.lowNote, w.highNote, b.getX(), b.getY(), b.getWidth(), b.getHeight());
+
+    if (note == heldNote && widgetIndex == heldKeyboard)
+        return;
+
+    releaseKey();
+
+    if (note < 0)
+        return;
+
+    heldNote = note;
+    heldKeyboard = widgetIndex;
+
+    if (onNote != nullptr)
+        onNote (note, stella::keys::velocityAt (plugin.y, stella::keys::keyOf (note, w.lowNote, w.highNote, b.getX(), b.getY(), b.getWidth(), b.getHeight())));
+
+    repaint (toView (w.bounds).getSmallestIntegerContainer().expanded (2));
+}
+
+void PluginCanvas::releaseKey()
+{
+    if (heldNote < 0)
+        return;
+
+    const auto note = heldNote;
+    const auto keyboard = heldKeyboard;
+    heldNote = heldKeyboard = -1;
+
+    if (onNote != nullptr)
+        onNote (note, 0.0f);
+
+    if (juce::isPositiveAndBelow (keyboard, (int) layout.widgets.size()))
+        repaint (toView (layout.widgets[(size_t) keyboard].bounds).getSmallestIntegerContainer().expanded (2));
 }
 
 juce::Rectangle<int> PluginCanvas::movingAreaOf (const GuiWidget& w) const
@@ -1266,7 +1462,8 @@ juce::Rectangle<int> PluginCanvas::movingAreaOf (const GuiWidget& w) const
         case GuiWidget::Type::envelope:
         case GuiWidget::Type::filter:    return w.bounds.withTrimmedBottom (w.label.isNotEmpty() ? GuiLayout::captionHeight : 0);
         case GuiWidget::Type::xy:        return w.bounds.withTrimmedBottom (GuiLayout::captionHeight);
-        case GuiWidget::Type::preset:    return w.bounds;
+        case GuiWidget::Type::preset:
+        case GuiWidget::Type::keyboard:  return w.bounds;
         case GuiWidget::Type::label:
         case GuiWidget::Type::group:
         case GuiWidget::Type::shape:
@@ -1389,7 +1586,8 @@ PluginCanvas::Bake PluginCanvas::bake()
             case GuiWidget::Type::filter:
             case GuiWidget::Type::xy:
             case GuiWidget::Type::shape:
-            case GuiWidget::Type::image:     break;
+            case GuiWidget::Type::image:
+            case GuiWidget::Type::keyboard:  break;   // its keys are in the background; the plugin draws the ones that are down
         }
 
         if (frames == 0)

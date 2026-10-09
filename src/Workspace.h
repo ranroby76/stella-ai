@@ -88,6 +88,8 @@ public:
     std::function<void()> onAutoLayoutRequested;
     std::function<void()> onLayoutEdited;
     std::function<void (int index, float value)> onParameterChanged;
+    std::function<void (int note, float velocity)> onNote;   // a keyboard element's key: down (velocity 0..1) or up (0)
+    std::function<bool (int note)> isNoteDown;               // whether a note is sounding, for keyboards to show
     std::function<void (bool playMode)> onModeChanged;   // the user picked Edit or Play
     std::function<void (int tabIndex)> onTabChanged;     // whichever way the tab changed
 

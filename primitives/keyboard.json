@@ -1,0 +1,14 @@
+{
+  "name": "Keyboard",
+  "category": "Controls",
+  "order": 45,
+  "icon": "keyboard",
+  "description": "A piano keyboard: click or slide across its keys to play the instrument's notes.",
+  "widget": {
+    "type": "keyboard",
+    "w": 600,
+    "h": 90,
+    "low": "C3",
+    "high": "C6"
+  }
+}

@@ -5,6 +5,7 @@
 #include "PluginCanvas.h"
 #include "PluginCanvasMenu.h"
 #include "StellaLookAndFeel.h"
+#include "stella_keys.h"
 
 namespace
 {
@@ -14,7 +15,7 @@ namespace
     const juce::StringArray filterModeNames { "Low-pass", "Low-pass 24 dB", "High-pass", "High-pass 24 dB", "Band-pass" };
 
     const GuiWidget::Type typeOrder[] { GuiWidget::Type::knob, GuiWidget::Type::slider, GuiWidget::Type::toggle,
-                                        GuiWidget::Type::selector, GuiWidget::Type::xy, GuiWidget::Type::preset,
+                                        GuiWidget::Type::selector, GuiWidget::Type::xy, GuiWidget::Type::keyboard, GuiWidget::Type::preset,
                                         GuiWidget::Type::meter, GuiWidget::Type::scope, GuiWidget::Type::lamp,
                                         GuiWidget::Type::envelope, GuiWidget::Type::filter,
                                         GuiWidget::Type::image, GuiWidget::Type::label, GuiWidget::Type::group, GuiWidget::Type::shape };
@@ -26,6 +27,20 @@ namespace
     juce::String pictureChoice (const juce::String& name)
     {
         return name.isNotEmpty() ? name : juce::String::fromUTF8 ("Choose picture\xe2\x80\xa6");
+    }
+
+    // A keyboard's lowest and highest key: the white keys from A0 to C8, the piano's range.
+    constexpr int lowestPianoKey = 21, highestPianoKey = 108;
+
+    void fillKeys (juce::ComboBox& box, int selected)
+    {
+        box.clear (juce::dontSendNotification);
+
+        for (int note = lowestPianoKey; note <= highestPianoKey; ++note)
+            if (! stella::keys::isBlack (note))
+                box.addItem (GuiLayout::noteName (note) + (note == 60 ? "  (middle C)" : ""), note + 1);
+
+        box.setSelectedId (selected + 1, juce::dontSendNotification);
     }
 }
 
@@ -130,7 +145,7 @@ PluginCanvas::ElementMenu::ElementMenu (PluginCanvas& owner)
     pictureMode.addItemList (GuiLayout::pictureModeNames(), 1);
     backgroundMode.addItemList (GuiLayout::pictureModeNames(), 1);
 
-    for (auto* box : { &type, &param, &source, &mode, &style, &pictureMode })
+    for (auto* box : { &type, &param, &source, &mode, &style, &pictureMode, &lowKey, &highKey })
         box->onChange = [this] { apply(); };
 
     for (auto& box : roles)
@@ -203,6 +218,7 @@ PluginCanvas::ElementMenu::ElementMenu (PluginCanvas& owner)
     addRow ("Text size, bold", textSize, &boldToggle, 0.4f);
     addRow ("Look", style);
     addRow ("Positions (comma separated)", options);
+    addRow ("Keys (lowest, highest)", lowKey, &highKey, 0.5f);
     addRow ("Picture", pictureButton);
     addRow ("Picture fit", pictureMode);
     addRow ("Colour", colour, nullptr, 1.0f, 22);
@@ -367,7 +383,8 @@ void PluginCanvas::ElementMenu::showFor (int widgetIndex)
         }
 
         const bool isText = t == GuiWidget::Type::label || t == GuiWidget::Type::group;
-        const bool hasCaption = t != GuiWidget::Type::image && t != GuiWidget::Type::shape && t != GuiWidget::Type::preset;
+        const bool hasCaption = t != GuiWidget::Type::image && t != GuiWidget::Type::shape && t != GuiWidget::Type::preset
+                             && t != GuiWidget::Type::keyboard;
 
         label.setText (w.label, juce::dontSendNotification);
         setShown (label, hasCaption, isText ? "Text" : "Caption");
@@ -410,6 +427,13 @@ void PluginCanvas::ElementMenu::showFor (int widgetIndex)
         options.setText (w.options.joinIntoString (", "), juce::dontSendNotification);
         setShown (options, t == GuiWidget::Type::selector);
 
+        if (t == GuiWidget::Type::keyboard)
+        {
+            fillKeys (lowKey, w.lowNote);
+            fillKeys (highKey, w.highNote);
+            setShown (lowKey, true);
+        }
+
         if (t == GuiWidget::Type::image)
         {
             pictureButton.setButtonText (pictureChoice (w.image));
@@ -420,7 +444,8 @@ void PluginCanvas::ElementMenu::showFor (int widgetIndex)
         }
 
         colour.setColourValue (w.colour, juce::dontSendNotification);
-        setShown (colour, ! Looks::takesLook (w) && t != GuiWidget::Type::image && t != GuiWidget::Type::meter);
+        setShown (colour, ! Looks::takesLook (w) && t != GuiWidget::Type::image && t != GuiWidget::Type::meter,
+                  t == GuiWidget::Type::keyboard ? "Colour of the keys that are down" : "Colour");
         setShown (removeButton, true);
 
         instruction.setTextToShowWhenEmpty ("e.g. make it bigger and gold", Theme::muted);
@@ -557,8 +582,20 @@ void PluginCanvas::ElementMenu::apply()
     else if (w.type == GuiWidget::Type::image)
         w.mode = GuiLayout::pictureModes()[juce::jmax (0, pictureMode.getSelectedId() - 1)];
 
-    if (w.type != GuiWidget::Type::image && w.type != GuiWidget::Type::shape && w.type != GuiWidget::Type::preset)
+    if (w.type != GuiWidget::Type::image && w.type != GuiWidget::Type::shape && w.type != GuiWidget::Type::preset
+        && w.type != GuiWidget::Type::keyboard)
         w.label = label.getText();
+
+    if (w.type == GuiWidget::Type::keyboard)
+    {
+        // The highest key stays above the lowest, at least an octave up.
+        w.lowNote = juce::jmax (0, lowKey.getSelectedId() - 1);
+        w.highNote = juce::jmax (0, highKey.getSelectedId() - 1);
+        stella::keys::normalise (w.lowNote, w.highNote);
+
+        if (highKey.getSelectedId() != w.highNote + 1)
+            fillKeys (highKey, w.highNote);
+    }
 
     if (Looks::takesLook (w) && juce::isPositiveAndBelow (style.getSelectedId() - 1, lookNames.size()))
         w.style = lookNames[style.getSelectedId() - 1];

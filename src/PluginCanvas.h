@@ -8,6 +8,7 @@
 #include "Looks.h"
 #include "Primitives.h"
 
+#include <bitset>
 #include <functional>
 #include <map>
 #include <memory>
@@ -23,8 +24,10 @@
 
     Play mode: the controls work like the finished plugin's: drag a knob or slider
     (Shift for fine moves), click a switch or a selector's position, drag in an XY pad,
-    double-click for the default, use the mouse wheel. Meters, lamps and scopes move with
-    the sound; envelope and filter curves follow their parameters.
+    double-click for the default, use the mouse wheel; a keyboard's keys play notes while
+    they're held (sliding across them plays each in turn). Meters, lamps and scopes move
+    with the sound; envelope and filter curves follow their parameters; keyboards light up
+    for every note that sounds, a MIDI keyboard's too.
 
     Edit mode: drag primitives in from the toolbox (or pictures from the desktop). Click an
     element to select it and open its edit menu, which also takes an instruction for
@@ -133,6 +136,8 @@ public:
     Bake bake();
 
     std::function<void (int index, float value)> onParameterChanged;
+    std::function<void (int note, float velocity)> onNote;         // a keyboard's key: down (velocity 0..1) or up (0)
+    std::function<bool (int note)> isNoteDown;                     // whether a note is sounding, for the keyboards to show
     std::function<void()> onLayoutEdited;                          // save it
     std::function<void (int widgetIndex)> onEditLook;              // open a control's look in the Knob Studio
     std::function<void (int presetIndex)> onPresetChosen;          // a preset widget was clicked in Play mode
@@ -213,6 +218,15 @@ private:
     /** A knob's, slider's or switch's look: its frame for a value, in its moving area. */
     void drawLook (juce::Graphics&, const GuiWidget&, juce::Rectangle<int> area, float value);
 
+    /** A keyboard: its keys at rest (what never moves), then the keys that are down, drawn
+        the way the exported plugin draws them over its baked background. */
+    void drawKeyboard (juce::Graphics&, const GuiWidget&, int index, Part part);
+    void drawKeyboardAtRest (juce::Graphics&, const GuiWidget&);
+
+    /** Play mode: the key under the mouse plays (the one before stops); -1 lets go. */
+    void playKey (int widgetIndex, juce::Point<float> plugin);
+    void releaseKey();
+
     /** The look most of the window's controls of this kind wear, for a new one (none: the default). */
     juce::String commonLook (const GuiWidget& widget) const;
     void edited();
@@ -278,6 +292,9 @@ private:
     juce::StringArray signalSources, displaySources;
     juce::StringArray presetNames;
     int currentPreset = -1;
+
+    int heldNote = -1, heldKeyboard = -1;                          // the key the mouse holds down, and on which keyboard
+    std::bitset<128> notesShown;                                   // the notes the keyboards show as down
 
     std::map<int, float> meterLevels;                              // by widget: shown level, with fall-back
     std::map<juce::String, float> frameLevels;                     // read once per frame per source

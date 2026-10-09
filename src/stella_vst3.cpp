@@ -243,7 +243,10 @@ namespace
                 prepared = runtime.prepare (sampleRate, maxFrames);
 
             if (! state)
+            {
                 runtime.reset();
+                guiNotes.clear();
+            }
 
             return kResultOk;
         }
@@ -406,7 +409,16 @@ namespace
                 }
             }
 
-            // Notes.
+            // The GUI's keyboard: its notes come first, at the start of the block.
+            {
+                int note = 0, velocity = 0;
+
+                while (guiNotes.pop (note, velocity))
+                    if (numPending < (int) pending.size())
+                        pending[(size_t) numPending++] = { 0, (std::uint8_t) (velocity > 0 ? 0x90 : 0x80), (std::uint8_t) note, (std::uint8_t) velocity, 0 };
+            }
+
+            // The host's notes.
             if (data.inputEvents != nullptr)
             {
                 for (int32 e = 0; e < data.inputEvents->getEventCount() && numPending < (int) pending.size(); ++e)
@@ -430,7 +442,20 @@ namespace
                 }
             }
 
-            std::sort (pending.begin(), pending.begin() + numPending, [] (const stella::Event& a, const stella::Event& b) { return a.frame < b.frame; });
+            // In time order, keeping the order of events at the same moment (a note's start
+            // before its stop). Few events at a time, so a plain insertion sort.
+            for (int i = 1; i < numPending; ++i)
+                for (int j = i; j > 0 && pending[(size_t) j - 1].frame > pending[(size_t) j].frame; --j)
+                    std::swap (pending[(size_t) j - 1], pending[(size_t) j]);
+
+            // What the GUI's keyboard shows down.
+            for (int i = 0; i < numPending; ++i)
+            {
+                const auto type = pending[(size_t) i].status & 0xf0;
+
+                if (type == 0x90 || type == 0x80)
+                    guiNotes.sounding (pending[(size_t) i].data1, type == 0x90 && pending[(size_t) i].data2 > 0);
+            }
 
             if (data.numSamples <= 0 || data.numOutputs < 1 || data.outputs[0].numChannels < 1 || ! prepared)
                 return kResultOk;
@@ -708,6 +733,13 @@ namespace
             }
         }
 
+        void playNote (int note, float velocity) override
+        {
+            guiNotes.push (note, velocity > 0.0f ? std::min (127, std::max (1, (int) std::lround (velocity * 127.0f))) : 0);
+        }
+
+        bool isNoteDown (int note) override    { return guiNotes.isDown (note); }
+
     private:
         int indexOf (ParamID id) const
         {
@@ -811,6 +843,7 @@ namespace
         std::vector<ParamID> ids;
         std::unique_ptr<std::atomic<float>[]> values;
         std::array<stella::Event, 1024> pending {};
+        stella::gui::Notes guiNotes;   // the GUI keyboard's notes, and the notes sounding
         IComponentHandler* handler = nullptr;
 
         std::vector<LiveSource> live;

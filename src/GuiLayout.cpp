@@ -1,6 +1,7 @@
 // C:\workspace\Stella AI Studio\src\GuiLayout.cpp
 
 #include "GuiLayout.h"
+#include "stella_keys.h"
 
 namespace
 {
@@ -59,6 +60,7 @@ juce::String GuiLayout::typeName (GuiWidget::Type type)
         case GuiWidget::Type::shape:     return "shape";
         case GuiWidget::Type::preset:    return "preset";
         case GuiWidget::Type::image:     return "image";
+        case GuiWidget::Type::keyboard:  return "keyboard";
     }
 
     return "knob";
@@ -82,7 +84,55 @@ GuiWidget::Type GuiLayout::typeFromName (const juce::String& name)
     if (n == "shape" || n == "path" || n == "drawing") return GuiWidget::Type::shape;
     if (n == "preset" || n == "presets" || n == "program") return GuiWidget::Type::preset;
     if (n == "image" || n == "picture" || n == "bitmap" || n == "photo") return GuiWidget::Type::image;
+    if (n == "keyboard" || n == "keys" || n == "piano" || n == "pianokeyboard" || n == "virtualkeyboard" || n == "midikeyboard")
+        return GuiWidget::Type::keyboard;
     return GuiWidget::Type::knob;
+}
+
+juce::String GuiLayout::noteName (int note)
+{
+    static const char* const names[] { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+    note = juce::jlimit (0, 127, note);
+    return juce::String (names[note % 12]) + juce::String (note / 12 - 1);
+}
+
+int GuiLayout::noteFromVar (const juce::var& value, int fallback)
+{
+    if (value.isInt() || value.isInt64() || value.isDouble())
+        return juce::jlimit (0, 127, juce::roundToInt ((double) value));
+
+    const auto text = value.toString().trim().toUpperCase().replace (juce::String::fromUTF8 ("\xe2\x99\xaf"), "#")
+                                                            .replace (juce::String::fromUTF8 ("\xe2\x99\xad"), "B");
+
+    if (text.isEmpty())
+        return fallback;
+
+    if (text.containsOnly ("0123456789"))
+        return juce::jlimit (0, 127, text.getIntValue());
+
+    // A letter, then sharps or flats, then the octave (C4 = 60; "C-1" = 0).
+    static const int letters[] { 9, 11, 0, 2, 4, 5, 7 };   // A B C D E F G
+    const auto letter = text[0];
+
+    if (letter < 'A' || letter > 'G')
+        return fallback;
+
+    int note = letters[letter - 'A'];
+    int i = 1;
+
+    for (; i < text.length(); ++i)
+    {
+        if (text[i] == '#')       ++note;
+        else if (text[i] == 'B')  --note;
+        else                      break;
+    }
+
+    const auto octave = text.substring (i);
+
+    if (octave.isEmpty() || ! octave.trimCharactersAtStart ("-").containsOnly ("0123456789"))
+        return fallback;
+
+    return juce::jlimit (0, 127, note + (octave.getIntValue() + 1) * 12);
 }
 
 //==============================================================================
@@ -168,6 +218,13 @@ GuiWidget GuiLayout::widgetFromVar (const juce::var& item)
         for (const auto& role : roles->getProperties())
             w.roles[role.name.toString()] = role.value.toString();
 
+    if (w.type == GuiWidget::Type::keyboard)
+    {
+        w.lowNote = noteFromVar (item.getProperty ("low", item.getProperty ("from", {})), w.lowNote);
+        w.highNote = noteFromVar (item.getProperty ("high", item.getProperty ("to", {})), w.highNote);
+        stella::keys::normalise (w.lowNote, w.highNote);
+    }
+
     const auto x = intOf (item, "x", 0), y = intOf (item, "y", 0);
 
     if (w.type == GuiWidget::Type::knob)
@@ -185,10 +242,10 @@ GuiWidget GuiLayout::widgetFromVar (const juce::var& item)
         const auto t = w.type;
         const auto defaultW = t == GuiWidget::Type::slider ? 32 : t == GuiWidget::Type::toggle ? 48 : t == GuiWidget::Type::meter ? 18
                             : t == GuiWidget::Type::lamp ? 30 : t == GuiWidget::Type::xy ? 160 : t == GuiWidget::Type::label ? 160
-                            : t == GuiWidget::Type::image ? 160 : 200;
+                            : t == GuiWidget::Type::image ? 160 : t == GuiWidget::Type::keyboard ? 600 : 200;
         const auto defaultH = t == GuiWidget::Type::slider ? 140 : t == GuiWidget::Type::toggle ? 48 : t == GuiWidget::Type::meter ? 140
                             : t == GuiWidget::Type::lamp ? 44 : t == GuiWidget::Type::xy ? 180 : t == GuiWidget::Type::label ? 28
-                            : t == GuiWidget::Type::preset ? 28 : t == GuiWidget::Type::group ? 160 : 120;
+                            : t == GuiWidget::Type::preset ? 28 : t == GuiWidget::Type::group ? 160 : t == GuiWidget::Type::keyboard ? 90 : 120;
         w.bounds = { x, y, juce::jlimit (8, maxWidth, intOf (item, "w", defaultW)), juce::jlimit (8, maxHeight, intOf (item, "h", defaultH)) };
     }
 
@@ -250,6 +307,12 @@ juce::var GuiLayout::widgetToVar (const GuiWidget& w)
     if (! w.stroke.isTransparent())  set (item, "stroke", colourToString (w.stroke));
     if (w.strokeWidth > 0.0f)        set (item, "strokeWidth", w.strokeWidth);
     if (w.image.isNotEmpty())        set (item, "image", w.image);
+
+    if (w.type == GuiWidget::Type::keyboard)
+    {
+        set (item, "low", noteName (w.lowNote));
+        set (item, "high", noteName (w.highNote));
+    }
 
     if (! w.roles.empty())
     {

@@ -528,6 +528,12 @@ void PluginCanvas::mouseDown (const juce::MouseEvent& e)
     drag = Drag::control;
     const auto& w = layout.widgets[(size_t) active];
 
+    if (w.type == GuiWidget::Type::keyboard)
+    {
+        playKey (active, plugin);
+        return;
+    }
+
     if (w.type == GuiWidget::Type::xy)
     {
         setXy (w, plugin);
@@ -709,6 +715,13 @@ void PluginCanvas::mouseDrag (const juce::MouseEvent& e)
 
             const auto& w = layout.widgets[(size_t) active];
 
+            // Sliding across the keys plays each in turn; off the keyboard, nothing plays.
+            if (w.type == GuiWidget::Type::keyboard)
+            {
+                playKey (active, toPlugin (e.position));
+                return;
+            }
+
             if (w.type == GuiWidget::Type::xy)
             {
                 setXy (w, toPlugin (e.position));
@@ -745,6 +758,7 @@ void PluginCanvas::mouseUp (const juce::MouseEvent&)
 {
     const auto was = drag;
     drag = Drag::none;
+    releaseKey();
     setMouseCursor (juce::MouseCursor::NormalCursor);
 
     if (design && changed)

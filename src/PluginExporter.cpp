@@ -182,6 +182,7 @@ PluginExporter::Gui PluginExporter::prepareGui (const GuiLayout& layout, const P
             case GuiWidget::Type::envelope:  kind = "envelope"; p1 = role (w, "attack"); p2 = role (w, "decay"); p3 = role (w, "sustain"); p4 = role (w, "release"); break;
             case GuiWidget::Type::filter:    kind = "filter";   p1 = role (w, "cutoff"); p2 = role (w, "resonance"); break;
             case GuiWidget::Type::preset:    kind = "preset"; break;
+            case GuiWidget::Type::keyboard:  kind = "keyboard"; break;
             case GuiWidget::Type::label:
             case GuiWidget::Type::group:
             case GuiWidget::Type::shape:
@@ -194,11 +195,15 @@ PluginExporter::Gui PluginExporter::prepareGui (const GuiLayout& layout, const P
         const auto strip = i < bake.stripOf.size() ? bake.stripOf[i] : -1;
         const auto colour = (w.colour.isTransparent() ? juce::Colour (0xffe5484d) : w.colour).getARGB();
         const auto vertical = w.type == GuiWidget::Type::slider ? (w.vertical ? 1 : 0) : (area.getHeight() >= area.getWidth() ? 1 : 0);
-        const auto count = strip >= 0 && (w.type == GuiWidget::Type::selector || w.type == GuiWidget::Type::preset) ? bake.strips[(size_t) strip].frames : 0;
+        // A keyboard's range: its lowest key in mode, its highest in count.
+        const auto count = w.type == GuiWidget::Type::keyboard ? w.highNote
+                         : strip >= 0 && (w.type == GuiWidget::Type::selector || w.type == GuiWidget::Type::preset) ? bake.strips[(size_t) strip].frames : 0;
 
         int mode = 0;
 
-        if (w.type == GuiWidget::Type::meter)
+        if (w.type == GuiWidget::Type::keyboard)
+            mode = w.lowNote;
+        else if (w.type == GuiWidget::Type::meter)
             mode = w.mode == "rms" ? 1 : 0;
         else if (w.type == GuiWidget::Type::filter)
             mode = juce::jmax (0, juce::StringArray { "lowpass", "lowpass24", "highpass", "highpass24", "bandpass" }.indexOf (w.mode));
@@ -327,6 +332,7 @@ PluginExporter::Result PluginExporter::exportPlugins (const juce::File& projectF
         || ! writeData ("stella_vst3.cpp", StellaRuntimeData::stella_vst3_cpp, StellaRuntimeData::stella_vst3_cppSize)
         || ! writeData ("stella_gui.h", StellaRuntimeData::stella_gui_h, StellaRuntimeData::stella_gui_hSize)
         || ! writeData ("stella_gui.cpp", StellaRuntimeData::stella_gui_cpp, StellaRuntimeData::stella_gui_cppSize)
+        || ! writeData ("stella_keys.h", StellaRuntimeData::stella_keys_h, StellaRuntimeData::stella_keys_hSize)
         || ! writeData ("stella_gui_win32.cpp", StellaRuntimeData::stella_gui_win32_cpp, StellaRuntimeData::stella_gui_win32_cppSize)
         || ! writeData ("stb_image.h", StellaRuntimeData::stb_image_h, StellaRuntimeData::stb_image_hSize)
         || ! work.getChildFile ("stella_gui_data.cpp").replaceWithText (guiSource (gui))

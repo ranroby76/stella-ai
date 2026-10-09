@@ -10,11 +10,11 @@
 //==============================================================================
 /** One element of the plugin's GUI. Controls are bound to a parameter by its id; meters,
     lamps and scopes watch a source (a signal or a module's display); pictures show a file
-    from the project's gui/images folder. */
+    from the project's gui/images folder; a keyboard plays notes into the plugin. */
 struct GuiWidget
 {
     enum class Type { knob, slider, toggle, selector, label, group,
-                      meter, scope, lamp, envelope, filter, xy, shape, preset, image };
+                      meter, scope, lamp, envelope, filter, xy, shape, preset, image, keyboard };
 
     Type type = Type::knob;
     juce::Rectangle<int> bounds;   // in the plugin window's pixels; controls include their caption
@@ -37,6 +37,8 @@ struct GuiWidget
     juce::String path;             // shapes: SVG path data, scaled to fit
     juce::Colour stroke;           // shapes: outline colour
     float strokeWidth = 0.0f;
+    int lowNote = 48, highNote = 84;   // keyboards: the lowest and highest key (MIDI notes; C3 to C6),
+                                       // white keys both (see stella::keys::normalise)
 
     bool isControl() const noexcept
     {
@@ -112,6 +114,11 @@ public:
 
     static juce::String typeName (GuiWidget::Type type);
     static GuiWidget::Type typeFromName (const juce::String& name);
+
+    /** Keyboards: a MIDI note's name ("C4" is middle C, 60), and a note from JSON: a name
+        ("F#2", "Bb3") or a number. */
+    static juce::String noteName (int note);
+    static int noteFromVar (const juce::var& value, int fallback);
     static juce::String colourToString (juce::Colour colour);
     static juce::Colour colourFromString (const juce::String& text, juce::Colour fallback);
 };

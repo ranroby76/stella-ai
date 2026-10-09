@@ -450,6 +450,29 @@ void Toolbox::drawIcon (juce::Graphics& g, juce::Rectangle<float> area, const ju
         return;
     }
 
+    if (icon == "keyboard")
+    {
+        // An octave, one key down.
+        const auto bed = box.withSizeKeepingCentre (s, s * 0.62f);
+        const auto whiteW = bed.getWidth() / 7.0f;
+
+        g.setColour (juce::Colour (0xff111113));
+        g.fillRoundedRectangle (bed, 2.0f);
+
+        for (int i = 0; i < 7; ++i)
+        {
+            g.setColour (i == 2 ? accent : juce::Colour (0xffefece5));
+            g.fillRect (juce::Rectangle<float> (bed.getX() + (float) i * whiteW + 0.5f, bed.getY(), whiteW - 1.0f, bed.getHeight()));
+        }
+
+        g.setColour (juce::Colour (0xff141416));
+
+        for (const auto i : { 1, 2, 4, 5, 6 })
+            g.fillRect (juce::Rectangle<float> (bed.getX() + (float) i * whiteW - whiteW * 0.3f, bed.getY(), whiteW * 0.6f, bed.getHeight() * 0.6f));
+
+        return;
+    }
+
     if (icon == "shape")
     {
         auto star = juce::Drawable::parseSVGPath ("M50,5 L61,39 L97,39 L68,61 L79,95 L50,74 L21,95 L32,61 L3,39 L39,39 Z");

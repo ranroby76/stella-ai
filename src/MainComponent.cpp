@@ -123,6 +123,17 @@ MainComponent::MainComponent (Settings& s)
     workspace.onShowLogRequested = [this] { showBuildLog(); };
     workspace.onExportRequested = [this] { exportPlugin(); };
     workspace.onParameterChanged = [this] (int index, float value) { preview.setParameterValue (index, value); };
+
+    // A keyboard element in the GUI plays the plugin like the studio's own keyboard state
+    // (a MIDI keyboard's notes light its keys up too).
+    workspace.onNote = [this] (int note, float velocity)
+    {
+        if (velocity > 0.0f)
+            engine.getKeyboardState().noteOn (1, note, velocity);
+        else
+            engine.getKeyboardState().noteOff (1, note, 0.0f);
+    };
+    workspace.isNoteDown = [this] (int note) { return engine.getKeyboardState().isNoteOnForChannels (0xffff, note); };
     workspace.onLayoutEdited = [this] { saveLayoutSoon(); };
 
     // The GUI's meters, lamps and scopes read the plugin live.
