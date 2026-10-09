@@ -119,17 +119,16 @@ The studio draws the plugin's window from this file; `set_layout` replaces it an
 ```json
 { "format": 1, "width": 760, "height": 420,
   "background": { "top": "#FF2B2B30", "bottom": "#FF17171A" },
-  "styles": { "main": { "preset": "black", "pointer": "#FFE8E2D2", "tickCount": 11 } },
   "widgets": [
     { "type": "label", "x": 20, "y": 12, "w": 300, "h": 30, "text": "ON ICE", "size": 22, "bold": true, "color": "#FFE8E4D8" },
     { "type": "group", "x": 20, "y": 52, "w": 330, "h": 150, "text": "FILTER" },
-    { "type": "knob", "param": "filter.cutoff", "x": 36, "y": 80, "size": 64, "label": "Cutoff", "style": "main" },
-    { "type": "slider", "param": "env.attack", "x": 380, "y": 70, "w": 30, "h": 130, "label": "A", "color": "#FFE5484D" },
-    { "type": "switch", "param": "osc.sync", "x": 430, "y": 70, "w": 48, "h": 66, "label": "Sync" },
+    { "type": "knob", "param": "filter.cutoff", "x": 36, "y": 80, "size": 64, "label": "Cutoff", "style": "Black knob" },
+    { "type": "slider", "param": "env.attack", "x": 380, "y": 70, "w": 32, "h": 150, "label": "A", "style": "Fader" },
+    { "type": "switch", "param": "osc.sync", "x": 430, "y": 70, "w": 48, "h": 66, "label": "Sync", "style": "Push button" },
     { "type": "selector", "param": "osc.wave", "x": 500, "y": 80, "w": 200, "h": 48, "label": "Wave", "options": ["Saw", "Square", "Tri"] } ] }
 ```
 - Coordinates are pixels in the plugin window. A knob's `size` is its diameter, and its caption takes 20 px under it; for other controls `h` includes the 20 px caption.
-- Types: `knob`, `slider` (vertical, or `"orientation": "horizontal"`), `switch` (on/off with a lamp), `selector` (one option per position of a 0..N-1 parameter), `label`, `group` (a titled frame drawn under the controls).
+- Types: `knob`, `slider` (vertical, or `"orientation": "horizontal"`), `switch` (on/off), `selector` (one option per position of a 0..N-1 parameter), `label`, `group` (a titled frame drawn under the controls).
 - Live widgets watch a `"source"`: a signal (`"plugin.out L"`, `"filter.out"`, `"plugin.in L"` for effects) or a module display (`"lfo.position"`). `meter` (`"mode"`: `"peak"` or `"rms"`; signals in dB, displays 0..1), `lamp` (lights from `"threshold"`, default 0.5), `scope` (a signal's waveform; up to 3).
 - Curves follow parameters through `"params"`: `envelope` with `{ "attack", "decay", "sustain", "release" }`, `filter` with `{ "cutoff", "resonance" }` and `"mode"` `"lowpass"`, `"lowpass24"`, `"highpass"`, `"highpass24"` or `"bandpass"`.
 - `xy`: an XY pad moving two parameters, `"params": { "x": "<id>", "y": "<id>" }`.
@@ -141,7 +140,7 @@ The studio draws the plugin's window from this file; `set_layout` replaces it an
 ## Presets
 `save_preset` stores a named set of parameter values (ids to values; parameters left out keep their defaults). A preset with the same name is replaced. Presets show in the studio's preset list and go into the exported plugin, where a `preset` widget steps through them. When asked for presets, give each a clear name and values that really sound different.
 - Bind every control to a parameter id (`module.param`) from the build result or the project. Group related controls, align them on a grid, keep breathing room; a classic layout reads left to right in signal order.
-- Knob looks come from KnobMaker: a style starts from a `preset` (`cream`, `black` or `metal`) and can set any of: `body`, `cap`, `pointer`, `bezel`, `tick`, `shadow` (colours `#AARRGGBB`), `lightAngle`, `ambient`, `specularStrength`, `specularTightness`, `capRadius`, `fluteInner`, `fluteOuter`, `fluteDuty`, `pointerInner`, `pointerOuter`, `pointerWidth`, `shadowRadius`, `shadowOffset`, `bezelWidth` (fractions of the radius, roughly 0..1), `fluteCount`, `tickCount`, `drawFlutes`, `rotateBody`.
+- Knobs, sliders and switches wear looks: KnobMan-style layered designs from the Knob Studio. Set a control's `"style"` to a look's name from the project's list ("Looks for knobs, sliders and switches"), one of the right kind (a horizontal slider needs a look for sliders across). Choose looks that suit the plugin's character, and give controls of the same kind the same look. Leave `"style"` out for the default. Never invent a look name: new looks are made by the user in the Knob Studio. Colours don't change a look.
 - The user reshapes the GUI by hand in the Edit UI tab. To change it, read `gui/layout.json` and edit it, keeping their arrangement, unless they ask for a new design.
 
 ## How to work

@@ -150,7 +150,6 @@ void PluginCanvas::setLayout (const GuiLayout& newLayout)
     const bool sizeChanged = newLayout.width != layout.width || newLayout.height != layout.height;
 
     layout = newLayout;
-    renderers.clear();
     meterLevels.clear();
 
     // Pictures that weren't there may be now.
@@ -208,7 +207,6 @@ void PluginCanvas::setSources (const juce::StringArray& signals, const juce::Str
 
 void PluginCanvas::edited()
 {
-    renderers.clear();   // a style may have changed
     reportSources();
 
     if (onLayoutEdited != nullptr)
@@ -302,7 +300,7 @@ int PluginCanvas::addElement (GuiWidget w, std::optional<juce::Point<float>> cen
     };
 
     // What the primitive leaves open: the first parameter not shown yet, its name as the
-    // caption, the project's knob look, a source to watch.
+    // caption, the look its kind mostly wears in this window, a source to watch.
     switch (w.type)
     {
         case GuiWidget::Type::knob:
@@ -317,8 +315,8 @@ int PluginCanvas::addElement (GuiWidget w, std::optional<juce::Point<float>> cen
                     if (p.id == w.param)
                         w.label = p.name;
 
-            if (w.type == GuiWidget::Type::knob && w.style.isEmpty())
-                w.style = layout.styles.empty() ? juce::String ("black") : layout.styles.begin()->first;
+            if (Looks::takesLook (w) && w.style.isEmpty())
+                w.style = commonLook (w);
 
             if (w.type == GuiWidget::Type::selector && w.options.isEmpty())
                 w.options = { "One", "Two", "Three" };
@@ -499,39 +497,89 @@ void PluginCanvas::setPresets (const juce::StringArray& names, int current)
     repaint();
 }
 
-void PluginCanvas::setKnobStyle (const juce::String& name, const KnobStyle& style)
+void PluginCanvas::setLooks (Looks& looksToUse)
 {
-    if (name.isEmpty())
-        return;
+    looks = &looksToUse;
+    repaint();
+}
 
-    layout.styles[name] = style;
-    renderers.erase (name);
-
-    if (onLayoutEdited != nullptr)
-        onLayoutEdited();
-
+void PluginCanvas::looksChanged()
+{
+    // The edit menu lists the looks: it shows the new ones, once whatever changed them is done.
     if (menuOpen)
-        openMenu();   // the look's name in the list
+        juce::MessageManager::callAsync ([safeThis = juce::Component::SafePointer<PluginCanvas> (this)]
+                                         {
+                                             if (safeThis != nullptr && safeThis->menuOpen)
+                                                 safeThis->openMenu();
+                                         });
 
     repaint();
 }
 
-juce::String PluginCanvas::makeKnobUnique (int widgetIndex)
+void PluginCanvas::useLook (int widgetIndex, const juce::String& lookName)
 {
     if (! juce::isPositiveAndBelow (widgetIndex, (int) layout.widgets.size()))
+        return;
+
+    auto& w = layout.widgets[(size_t) widgetIndex];
+
+    if (! Looks::takesLook (w) || w.style == lookName)
+        return;
+
+    w.style = lookName;
+    edited();
+}
+
+juce::String PluginCanvas::giveOwnLook (int widgetIndex)
+{
+    if (looks == nullptr || ! juce::isPositiveAndBelow (widgetIndex, (int) layout.widgets.size()))
         return {};
 
     auto& w = layout.widgets[(size_t) widgetIndex];
-    const auto base = (w.label.isNotEmpty() ? w.label : juce::String ("knob")).toLowerCase();
-    auto name = base;
 
-    for (int i = 2; layout.styles.find (name) != layout.styles.end(); ++i)
-        name = base + " " + juce::String (i);
+    if (! Looks::takesLook (w))
+        return {};
 
-    layout.styles[name] = layout.styleFor (w.style);
+    // A copy of what it wears now, named after it ("Cutoff"), saved as the plugin's own: never
+    // the name of a look other controls wear.
+    juce::StringArray worn;
+
+    for (const auto& other : layout.widgets)
+        if (Looks::takesLook (other))
+            worn.addIfNotAlreadyThere (looks->lookFor (other).name);
+
+    const auto& current = looks->lookFor (w);
+    const auto doc = current.doc;
+    const auto name = looks->freeName (w.label.isNotEmpty() ? w.label : current.name, worn);
+
+    looks->setProjectLook (name, Looks::kindOf (w), doc);
     w.style = name;
     edited();
     return name;
+}
+
+juce::String PluginCanvas::commonLook (const GuiWidget& widget) const
+{
+    std::map<juce::String, int> counts;   // "" counts too: the default look
+    const auto kind = Looks::kindOf (widget);
+
+    for (const auto& other : layout.widgets)
+        if (Looks::takesLook (other) && Looks::kindOf (other) == kind)
+            ++counts[other.style];
+
+    juce::String best;
+    int most = 0;
+
+    for (const auto& [name, count] : counts)
+    {
+        if (count > most)
+        {
+            best = name;
+            most = count;
+        }
+    }
+
+    return best;
 }
 
 //==============================================================================
@@ -631,14 +679,19 @@ void PluginCanvas::setXy (const GuiWidget& w, juce::Point<float> plugin)
             setValue (*p, valueAt (*p, (pad.getBottom() - plugin.y) / pad.getHeight()));
 }
 
-KnobRenderer& PluginCanvas::rendererFor (const juce::String& style)
+void PluginCanvas::drawLook (juce::Graphics& g, const GuiWidget& w, juce::Rectangle<int> area, float value)
 {
-    auto& renderer = renderers[style];
+    if (looks == nullptr || area.isEmpty())
+        return;
 
-    if (renderer == nullptr)
-        renderer = std::make_unique<KnobRenderer> (layout.styleFor (style));
+    const auto kind = Looks::kindOf (w);
+    const auto& look = looks->lookFor (w);
 
-    return *renderer;
+    // Zoomed in, it's drawn with more pixels so it stays sharp; Export bakes plugin pixels.
+    const auto resolution = baking ? 1.0f
+                                   : (g.getInternalContext().getPhysicalPixelScaleFactor() > 1.3f ? 2.0f : 1.0f);
+
+    g.drawImage (looks->frame (look, kind, area.getWidth(), area.getHeight(), value, resolution), area.toFloat());
 }
 
 juce::Rectangle<int> PluginCanvas::knobSquare (const GuiWidget& w) const
@@ -1113,82 +1166,24 @@ void PluginCanvas::drawWidget (juce::Graphics& g, int index, Part part, float ov
         }
 
         case GuiWidget::Type::knob:
-        {
-            const auto square = knobSquare (w).toFloat();
-
-            if (moving)
-                rendererFor (w.style).draw (g, square, proportion, KnobRenderer::defaultStartAngle, KnobRenderer::defaultEndAngle,
-                                            index == hovered, index == active, ! missing);
-
-            // The caption may be wider than the knob, so names like "Resonance" fit.
-            caption (b.withTop (square.getBottom()).withHeight ((float) GuiLayout::captionHeight).expanded (14.0f, 0.0f));
-            break;
-        }
-
         case GuiWidget::Type::slider:
-        {
-            auto area = b.withTrimmedBottom ((float) GuiLayout::captionHeight);
-            const auto track = w.vertical ? area.withSizeKeepingCentre (6.0f, area.getHeight() - 8.0f)
-                                          : area.withSizeKeepingCentre (area.getWidth() - 8.0f, 6.0f);
-
-            if (! moving)
-            {
-                caption (b.withTop (b.getBottom() - (float) GuiLayout::captionHeight).expanded (14.0f, 0.0f));
-                break;
-            }
-
-            g.setColour (juce::Colours::black.withAlpha (0.55f));
-            g.fillRoundedRectangle (track, 3.0f);
-
-            const auto filled = w.vertical ? track.withTop (track.getBottom() - track.getHeight() * proportion)
-                                           : track.withWidth (track.getWidth() * proportion);
-            g.setColour (missing ? Theme::muted : accent);
-            g.fillRoundedRectangle (filled, 3.0f);
-
-            const auto thumbCentre = w.vertical ? juce::Point<float> (track.getCentreX(), filled.getY())
-                                                : juce::Point<float> (filled.getRight(), track.getCentreY());
-            const auto thumb = w.vertical ? juce::Rectangle<float> (area.getWidth() * 0.9f, 12.0f).withCentre (thumbCentre)
-                                          : juce::Rectangle<float> (12.0f, area.getHeight() * 0.9f).withCentre (thumbCentre);
-
-            g.setColour (juce::Colour (0xffe9e6df));
-            g.fillRoundedRectangle (thumb, 3.0f);
-            g.setColour (juce::Colours::black.withAlpha (0.5f));
-            g.drawRoundedRectangle (thumb, 3.0f, 1.0f);
-
-            caption (b.withTop (b.getBottom() - (float) GuiLayout::captionHeight).expanded (14.0f, 0.0f));
-            break;
-        }
-
         case GuiWidget::Type::toggle:
         {
-            if (! moving)
+            // Its look, at the frame for its value (a switch: off or on). Unbound, it's faded.
+            if (moving)
             {
-                caption (b.withTop (b.getBottom() - (float) GuiLayout::captionHeight).expanded (14.0f, 0.0f));
-                break;
+                const auto position = w.type != GuiWidget::Type::toggle ? proportion
+                                    : (override >= 0.0f ? (override >= 0.5f ? 1.0f : 0.0f) : (p != nullptr && proportion >= 0.5f ? 1.0f : 0.0f));
+
+                juce::Graphics::ScopedSaveState state (g);
+
+                if (missing && ! baking)
+                    g.setOpacity (0.45f);
+
+                drawLook (g, w, movingAreaOf (w), position);
             }
 
-            const bool on = override >= 0.0f ? override >= 0.5f : (p != nullptr && proportion >= 0.5f);
-            auto area = b.withTrimmedBottom ((float) GuiLayout::captionHeight);
-            const auto lamp = juce::Rectangle<float> (10.0f, 10.0f).withCentre ({ area.getCentreX(), area.getY() + 8.0f });
-            const auto button = area.withTrimmedTop (18.0f).withSizeKeepingCentre (juce::jmin (area.getWidth(), 40.0f), juce::jmax (12.0f, area.getHeight() - 20.0f));
-
-            const auto ledColour = w.colour.isTransparent() ? juce::Colour (0xffffb020) : w.colour;   // amber, like the old pilot lights
-
-            if (on)
-            {
-                g.setColour (ledColour.withAlpha (0.35f));
-                g.fillEllipse (lamp.expanded (4.0f));
-            }
-
-            g.setColour (on ? ledColour : juce::Colour (0xff3a3326));
-            g.fillEllipse (lamp);
-
-            g.setGradientFill (juce::ColourGradient (juce::Colour (on ? 0xff2d2d31 : 0xff4a4a50), button.getX(), button.getY(),
-                                                     juce::Colour (on ? 0xff45454b : 0xff2a2a2e), button.getX(), button.getBottom(), false));
-            g.fillRoundedRectangle (button, 4.0f);
-            g.setColour (juce::Colours::black.withAlpha (0.6f));
-            g.drawRoundedRectangle (button, 4.0f, 1.0f);
-
+            // The caption may be wider than the control, so names like "Resonance" fit.
             caption (b.withTop (b.getBottom() - (float) GuiLayout::captionHeight).expanded (14.0f, 0.0f));
             break;
         }
@@ -1321,7 +1316,6 @@ PluginCanvas::Bake PluginCanvas::bake()
 {
     const juce::ScopedValueSetter<int> noHover (hovered, -1), noActive (active, -1);
     const juce::ScopedValueSetter<bool> bakingNow (baking, true);
-    renderers.clear();
 
     Bake result;
     result.background = juce::Image (juce::Image::ARGB, layout.width, layout.height, true);
@@ -1334,7 +1328,7 @@ PluginCanvas::Bake PluginCanvas::bake()
             drawWidget (g, i, Part::still);
     }
 
-    std::map<juce::String, int> knobStrips;   // knobs with the same look and size share frames
+    std::map<juce::String, int> lookStrips;   // controls with the same look and size share frames
 
     for (int i = 0; i < (int) layout.widgets.size(); ++i)
     {
@@ -1346,14 +1340,37 @@ PluginCanvas::Bake PluginCanvas::bake()
         if (area.isEmpty())
             continue;
 
+        // Knobs, sliders and switches: their look's frames (a switch: off, on).
+        if (Looks::takesLook (w) && looks != nullptr)
+        {
+            const auto kind = Looks::kindOf (w);
+            const auto& look = looks->lookFor (w);
+            const auto key = juce::String (look.revision) + "|" + Looks::kindName (kind) + "|"
+                           + juce::String (area.getWidth()) + "x" + juce::String (area.getHeight());
+
+            if (const auto found = lookStrips.find (key); found != lookStrips.end())
+            {
+                result.stripOf.back() = found->second;
+                continue;
+            }
+
+            Bake::Strip strip;
+            strip.image = looks->strip (look, kind, area.getWidth(), area.getHeight());
+            strip.frameWidth = area.getWidth();
+            strip.frameHeight = area.getHeight();
+            strip.frames = Looks::framesFor (look, kind);
+
+            lookStrips[key] = (int) result.strips.size();
+            result.stripOf.back() = (int) result.strips.size();
+            result.strips.push_back (strip);
+            continue;
+        }
+
         int frames = 0;
 
         switch (w.type)
         {
-            case GuiWidget::Type::knob:      frames = 128; break;
-            case GuiWidget::Type::slider:    frames = 100; break;
             case GuiWidget::Type::preset:    frames = juce::jmax (1, presetNames.size()); break;
-            case GuiWidget::Type::toggle:    frames = 2; break;
             case GuiWidget::Type::lamp:      frames = 2; break;
             case GuiWidget::Type::selector:
             {
@@ -1361,6 +1378,9 @@ PluginCanvas::Bake PluginCanvas::bake()
                 frames = juce::jmax (1, w.options.size() > 0 ? w.options.size() : (p != nullptr ? (int) (p->max - p->min) + 1 : 1));
                 break;
             }
+            case GuiWidget::Type::knob:
+            case GuiWidget::Type::slider:
+            case GuiWidget::Type::toggle:
             case GuiWidget::Type::label:
             case GuiWidget::Type::group:
             case GuiWidget::Type::meter:
@@ -1375,28 +1395,6 @@ PluginCanvas::Bake PluginCanvas::bake()
         if (frames == 0)
             continue;
 
-        if (w.type == GuiWidget::Type::knob)
-        {
-            const auto key = w.style + "|" + juce::String (area.getWidth());
-
-            if (const auto found = knobStrips.find (key); found != knobStrips.end())
-            {
-                result.stripOf.back() = found->second;
-                continue;
-            }
-
-            Bake::Strip strip;
-            strip.image = rendererFor (w.style).renderFilmstrip (area.getWidth(), frames, true,
-                                                                 KnobRenderer::defaultStartAngle, KnobRenderer::defaultEndAngle);
-            strip.frameWidth = strip.frameHeight = area.getWidth();
-            strip.frames = frames;
-
-            knobStrips[key] = (int) result.strips.size();
-            result.stripOf.back() = (int) result.strips.size();
-            result.strips.push_back (strip);
-            continue;
-        }
-
         Bake::Strip strip;
         strip.frameWidth = area.getWidth();
         strip.frameHeight = area.getHeight();
@@ -1409,15 +1407,13 @@ PluginCanvas::Bake PluginCanvas::bake()
             g.setOrigin ({ -area.getX(), f * area.getHeight() - area.getY() });
             g.reduceClipRegion (area);
 
-            const auto override = w.type == GuiWidget::Type::slider ? (float) f / (float) (frames - 1) : (float) f;
-            drawWidget (g, i, Part::moving, override);
+            drawWidget (g, i, Part::moving, (float) f);
         }
 
         result.stripOf.back() = (int) result.strips.size();
         result.strips.push_back (strip);
     }
 
-    renderers.clear();
     return result;
 }
 

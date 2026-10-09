@@ -3,8 +3,8 @@
 
 #pragma once
 
+#include "ColourSwatch.h"
 #include "PluginCanvas.h"
-#include "StyleEditorPanel.h"   // ColourSwatchButton
 
 //==============================================================================
 /**
@@ -78,8 +78,9 @@ private:
     juce::TextEditor label, options, textSize;
     juce::ToggleButton boldToggle { "Bold" };
     ColourSwatchButton colour { "Colour" };
-    juce::TextButton pictureButton, knobStudioButton { "Restyle in Knob Studio" }, removeButton { "Delete" };
+    juce::TextButton pictureButton, knobStudioButton { "Design it in the Knob Studio" }, removeButton { "Delete" };
     juce::StringArray roleNames;
+    juce::StringArray lookNames;   // the Look list's entries, by item id - 1
 
     // The window's rows.
     juce::TextEditor widthBox, heightBox;

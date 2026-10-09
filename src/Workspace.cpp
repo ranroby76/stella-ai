@@ -308,7 +308,14 @@ Workspace::Workspace()
     pluginView.onAutoLayout = [this] { if (onAutoLayoutRequested != nullptr) onAutoLayoutRequested(); };
     pluginView.onMode       = [this] (bool play) { if (onModeChanged != nullptr) onModeChanged (play); };
 
-    pluginView.canvas.onLayoutEdited = [this] { if (onLayoutEdited != nullptr) onLayoutEdited(); };
+    pluginView.canvas.onLayoutEdited = [this]
+    {
+        // A look of mine put on a control comes into the plugin, so it opens anywhere.
+        looks.adoptMine (pluginView.canvas.getLayout());
+
+        if (onLayoutEdited != nullptr)
+            onLayoutEdited();
+    };
     pluginView.canvas.onAskAi = [this] (int widgetIndex, const juce::String& instruction)
     {
         if (onAskAiAboutGui != nullptr)
@@ -316,15 +323,31 @@ Workspace::Workspace()
     };
     pluginView.canvas.onOpenChat = [this] { showTab (aiTab); };
 
-    // Double-click a knob in the Edit tab: its look opens in the Knob Studio.
-    pluginView.canvas.onEditKnob = [this] (int widgetIndex)
+    // The looks: the canvas draws from them and the Knob Studio edits them. A change shows
+    // on both at once.
+    pluginView.canvas.setLooks (looks);
+    looks.onChanged = [this]
     {
-        studio.setLayout (pluginView.canvas.getLayout());
-        studio.editKnob (widgetIndex);
-        showTab (studioTab);
+        pluginView.canvas.looksChanged();
+        studio.looksChanged();
     };
 
-    studio.onStyleChanged = [this] (const juce::String& name, const KnobStyle& style) { pluginView.canvas.setKnobStyle (name, style); };
+    // A picture chosen for a look's Image layer is copied into the project's pictures.
+    LayerImages::setAdopter ([] (const juce::File& picture)
+    {
+        const auto folder = LayerImages::getFolder();
+        return folder != juce::File() ? GuiLayout::importPicture (picture, folder) : juce::String();
+    });
+
+    // Double-click a knob, slider or switch in the Edit tab: its look opens in the Knob Studio.
+    pluginView.canvas.onEditLook = [this] (int widgetIndex)
+    {
+        studio.setLayout (pluginView.canvas.getLayout());
+        studio.editControl (widgetIndex);
+
+        const juce::ScopedValueSetter<bool> forControl (openingStudioForControl, true);
+        showTab (studioTab);
+    };
 
     pluginView.canvas.readLevel = [this] (const juce::String& source, bool rms) { return readLevel != nullptr ? readLevel (source, rms) : 0.0f; };
     pluginView.canvas.readScope = [this] (const juce::String& source, float* destination, int numSamples)
@@ -339,9 +362,14 @@ Workspace::Workspace()
         if (onSourcesChanged != nullptr)
             onSourcesChanged (levels, scopes);
     };
-    studio.onMakeUnique = [this] (int widgetIndex)
+    studio.onUseLook = [this] (int widgetIndex, const juce::String& lookName)
     {
-        const auto name = pluginView.canvas.makeKnobUnique (widgetIndex);
+        pluginView.canvas.useLook (widgetIndex, lookName);
+        studio.setLayout (pluginView.canvas.getLayout());
+    };
+    studio.onGiveOwnLook = [this] (int widgetIndex)
+    {
+        const auto name = pluginView.canvas.giveOwnLook (widgetIndex);
         studio.setLayout (pluginView.canvas.getLayout());
         return name;
     };
@@ -369,6 +397,13 @@ void Workspace::setAiPage (juce::Component& page)
 
 void Workspace::showTab (TabIndex index)
 {
+    // The Knob Studio opened from the top bar: the plugin's looks as they are now, no control.
+    if (index == studioTab && currentTab != studioTab && ! openingStudioForControl)
+    {
+        studio.setLayout (pluginView.canvas.getLayout());
+        studio.editControl (-1);
+    }
+
     currentTab = index;
     showPages();
 
@@ -390,7 +425,13 @@ void Workspace::setProject (const juce::String& name, const juce::String& kindNa
     pluginView.setProject (name, kindName);
 }
 
-void Workspace::setGuiFolder (const juce::File& folder)                   { pluginView.canvas.setGuiFolder (folder); }
+void Workspace::setGuiFolder (const juce::File& folder)
+{
+    LayerImages::setFolder (folder != juce::File() ? folder.getChildFile (GuiLayout::imagesFolder) : juce::File());
+    looks.setGuiFolder (folder);
+    pluginView.canvas.setGuiFolder (folder);
+}
+
 void Workspace::showAiWorking (const juce::String& what)                  { pluginView.canvas.showAiWorking (what); }
 void Workspace::showAiReply (const juce::String& reply)                   { pluginView.canvas.showAiReply (reply); }
 void Workspace::setPlayMode (bool playMode)                               { pluginView.setPlayMode (playMode); }
@@ -399,6 +440,10 @@ void Workspace::setExporting (bool exporting)                             { plug
 void Workspace::setParameters (const juce::Array<ParamControl>& params)   { pluginView.canvas.setParameters (params); }
 void Workspace::setLayout (const GuiLayout& layout)
 {
+    // A new layout may come with changed looks (an undo, Stella AI): read them again.
+    looks.reload();
+    looks.adoptMine (layout);
+
     pluginView.canvas.setLayout (layout);
     studio.setLayout (layout);
 }

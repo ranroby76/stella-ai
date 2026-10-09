@@ -42,6 +42,16 @@ juce_add_binary_data(StellaPrimitives
     NAMESPACE   StellaPrimitives
     SOURCES     ${STELLA_PRIMITIVES})
 
+# The Knob Studio's built-in looks for knobs, sliders and switches: KnobMaker layer documents
+# (.fklayers) in the looks folder, compiled into the app. A new file there is offered after
+# the next build.
+file(GLOB STELLA_LOOKS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/looks/*.fklayers")
+
+juce_add_binary_data(StellaLooks
+    HEADER_NAME StellaLooks.h
+    NAMESPACE   StellaLooks
+    SOURCES     ${STELLA_LOOKS})
+
 # The Stella runtime, the plugin wrappers and Stella AI's guide, carried inside the app:
 # the runtime and wrappers are compiled into each plugin, not into the studio.
 juce_add_binary_data(StellaRuntimeData
@@ -104,10 +114,6 @@ target_sources(StellaAIStudio PRIVATE
     src/PresetBank.cpp
     src/SchematicView.h
     src/SchematicView.cpp
-    src/KnobStyle.h
-    src/KnobStyle.cpp
-    src/KnobRenderer.h
-    src/KnobRenderer.cpp
     src/GuiLayout.h
     src/GuiLayout.cpp
     src/PluginCanvas.h
@@ -119,12 +125,35 @@ target_sources(StellaAIStudio PRIVATE
     src/Primitives.cpp
     src/Toolbox.h
     src/Toolbox.cpp
-    src/KnobSource.h
+    src/ColourSwatch.h
+    src/ColourSwatch.cpp
     src/UiHelpers.h
-    src/StyleEditorPanel.h
-    src/StyleEditorPanel.cpp
-    src/PreviewComponent.h
-    src/PreviewComponent.cpp
+    src/Looks.h
+    src/Looks.cpp
+    src/LayerDoc.h
+    src/LayerDoc.cpp
+    src/LayerRender.h
+    src/LayerRender.cpp
+    src/LayerPanels.h
+    src/LayerPanels.cpp
+    src/LayerWorkspace.h
+    src/LayerWorkspace.cpp
+    src/BevelDialog.h
+    src/BevelDialog.cpp
+    src/TextureLibrary.h
+    src/TextureLibrary.cpp
+    src/BmpImage.h
+    src/BmpImage.cpp
+    src/KnobFile.h
+    src/KnobFile.cpp
+    src/GalleryBrowser.h
+    src/GalleryBrowser.cpp
+    src/ShapeDoc.h
+    src/ShapeDoc.cpp
+    src/ShapeEditor.h
+    src/ShapeEditor.cpp
+    src/ShapeWorkspace.h
+    src/ShapeWorkspace.cpp
     src/KnobStudio.h
     src/KnobStudio.cpp
     src/Workspace.h
@@ -157,6 +186,7 @@ target_link_libraries(StellaAIStudio
         StellaRuntimeData
         StellaAssets
         StellaPrimitives
+        StellaLooks
         juce::juce_audio_utils
         juce::juce_audio_devices
         juce::juce_audio_basics

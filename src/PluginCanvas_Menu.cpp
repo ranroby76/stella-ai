@@ -180,10 +180,11 @@ PluginCanvas::ElementMenu::ElementMenu (PluginCanvas& owner)
         showFor (-1);
     };
 
+    knobStudioButton.setTooltip ("Open its look in the Knob Studio: layers, bevels, textures, the KnobMan gallery");
     knobStudioButton.onClick = [this]
     {
-        if (widget >= 0 && canvas.onEditKnob != nullptr)
-            canvas.onEditKnob (widget);
+        if (widget >= 0 && canvas.onEditLook != nullptr)
+            canvas.onEditLook (widget);
     };
 
     removeButton.setTooltip ("Delete it from the window (Delete key)");
@@ -200,7 +201,7 @@ PluginCanvas::ElementMenu::ElementMenu (PluginCanvas& owner)
     addRow ("Mode", mode);
     addRow ("Text", label);
     addRow ("Text size, bold", textSize, &boldToggle, 0.4f);
-    addRow ("Knob look", style);
+    addRow ("Look", style);
     addRow ("Positions (comma separated)", options);
     addRow ("Picture", pictureButton);
     addRow ("Picture fit", pictureMode);
@@ -376,19 +377,32 @@ void PluginCanvas::ElementMenu::showFor (int widgetIndex)
         boldToggle.setToggleState (w.bold, juce::dontSendNotification);
         setShown (textSize, isText);
 
-        if (t == GuiWidget::Type::knob)
+        if (Looks::takesLook (w) && canvas.looks != nullptr)
         {
+            // Every look of its kind: the plugin's own, mine, then the built-in ones.
             style.clear (juce::dontSendNotification);
-            juce::StringArray styleNames;
+            lookNames.clear();
 
-            for (const auto& entry : canvas.layout.styles)
-                styleNames.add (entry.first);
+            const auto shown = canvas.looks->lookFor (w).name;
+            auto origin = Looks::Origin::builtIn;
+            bool first = true;
 
-            for (const auto& preset : { "cream", "black", "metal" })
-                styleNames.addIfNotAlreadyThere (preset);
+            for (const auto* look : canvas.looks->listFor (Looks::kindOf (w)))
+            {
+                if (first || look->origin != origin)
+                {
+                    origin = look->origin;
+                    style.addSectionHeading (origin == Looks::Origin::project ? "This plugin's own"
+                                           : origin == Looks::Origin::mine    ? "My looks"
+                                                                              : "Built in");
+                    first = false;
+                }
 
-            style.addItemList (styleNames, 1);
-            style.setSelectedId (juce::jmax (0, styleNames.indexOf (w.style)) + 1, juce::dontSendNotification);
+                lookNames.add (look->name);
+                style.addItem (look->name, lookNames.size());
+            }
+
+            style.setSelectedId (lookNames.indexOf (shown) + 1, juce::dontSendNotification);
             setShown (style, true);
             setShown (knobStudioButton, true);
         }
@@ -406,7 +420,7 @@ void PluginCanvas::ElementMenu::showFor (int widgetIndex)
         }
 
         colour.setColourValue (w.colour, juce::dontSendNotification);
-        setShown (colour, t != GuiWidget::Type::knob && t != GuiWidget::Type::image && t != GuiWidget::Type::meter);
+        setShown (colour, ! Looks::takesLook (w) && t != GuiWidget::Type::image && t != GuiWidget::Type::meter);
         setShown (removeButton, true);
 
         instruction.setTextToShowWhenEmpty ("e.g. make it bigger and gold", Theme::muted);
@@ -502,6 +516,10 @@ void PluginCanvas::ElementMenu::apply()
         w.type = newType;
         w.roles.clear();
         w.mode.clear();
+        w.style.clear();
+
+        if (Looks::takesLook (w))
+            w.style = canvas.commonLook (w);   // the look its new kind mostly wears here
 
         if (newType == GuiWidget::Type::shape && w.path.isEmpty())
             w.path = PluginCanvas::defaultStarPath();
@@ -542,8 +560,8 @@ void PluginCanvas::ElementMenu::apply()
     if (w.type != GuiWidget::Type::image && w.type != GuiWidget::Type::shape && w.type != GuiWidget::Type::preset)
         w.label = label.getText();
 
-    if (w.type == GuiWidget::Type::knob)
-        w.style = style.getText();
+    if (Looks::takesLook (w) && juce::isPositiveAndBelow (style.getSelectedId() - 1, lookNames.size()))
+        w.style = lookNames[style.getSelectedId() - 1];
 
     if (w.type == GuiWidget::Type::selector)
     {
@@ -558,7 +576,7 @@ void PluginCanvas::ElementMenu::apply()
         w.bold = boldToggle.getToggleState();
     }
 
-    if (w.type != GuiWidget::Type::knob && w.type != GuiWidget::Type::image && w.type != GuiWidget::Type::meter)
+    if (! Looks::takesLook (w) && w.type != GuiWidget::Type::image && w.type != GuiWidget::Type::meter)
         w.colour = colour.getColourValue();
 
     subtitle = w.type == GuiWidget::Type::image ? w.image : w.label;

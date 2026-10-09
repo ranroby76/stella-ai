@@ -38,6 +38,11 @@ History::Files History::read() const
 
     add (folder.getChildFile ("gui").getChildFile ("layout.json"));
     add (folder.getChildFile ("gui").getChildFile ("schematic.json"));
+
+    // The looks the Knob Studio made for the plugin's controls.
+    for (const auto& file : folder.getChildFile ("gui").getChildFile ("looks").findChildFiles (juce::File::findFiles, false, "*.fklayers"))
+        add (file);
+
     return files;
 }
 
@@ -76,7 +81,8 @@ History::Changed History::restore (const Files& target)
     auto mark = [&changed] (const juce::String& path)
     {
         if (isCode (path))                       changed.code = true;
-        else if (path == "gui/layout.json")      changed.layout = true;
+        else if (path == "gui/layout.json"
+                 || path.startsWith ("gui/looks/")) changed.layout = true;   // the layout is read again, and its looks
         else if (path == "gui/schematic.json")   changed.schematic = true;
         else if (path == "presets.json")         changed.presets = true;
     };

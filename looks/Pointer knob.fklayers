@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<LayerDoc globalLightAngle="120.0" globalLightAltitude="30.0" canvasWidth="128"
+          canvasHeight="128" frames="101" stellaKind="knob" stellaOrder="60"
+          stellaDescription="black chicken-head pointer knob: tube amps, vintage effects">
+  <Layer name="Base" visible="1" solo="0">
+    <Primitive type="3" colour="4279637528" aspect="0.0" round="0.0" width="10.0"
+               length="80.0" step="12" angleStep="0.0" emboss="14.0" embossDiffuse="60.0"
+               ambient="35.0" lightDir="120.0" specular="18.0" specularWidth="25.0"
+               diffuse="0.0" gloss="0.0" text="Text" fontSize="24.0" bold="0"
+               italic="0" textAlign="0" imageFile="" fill="1" ledShape="0" ledOn="1"
+               ledFollow="0" ledSize="70.0" ledIntensity="100.0" ledCore="35.0"
+               ledOffLevel="22.0" ledGlow="45.0" ledBezel="14.0" ledBezelCol="ff202024"
+               meterOuterLen="0.0" meterLabels="" meterLabelGap="10.0" meterLabelsIn="0"
+               meterEvery="5" meterMinorLen="45.0" meterMinorW="65.0" meterStart="-135.0"
+               meterEnd="135.0" rayBend="0.0" raySkew="0.0" rayRound="0.0" shadOn="1"
+               shadCol="ff000000" shadOp="55.0" shadX="2.0" shadY="3.0" shadSize="5.0"
+               shadFade="80.0" shadKnock="1" shadCurve="0.0" shadHot="0.0" shadBlend="0"
+               innerOn="0" innerCol="ff000000" innerOp="55.0" innerX="4.0" innerY="4.0"
+               innerSize="8.0" innerFade="70.0" innerKnock="0" innerCurve="0.0"
+               innerHot="0.0" innerBlend="0" glowOn="0" glowCol="ffffd060" glowOp="75.0"
+               glowX="0.0" glowY="0.0" glowSize="12.0" glowFade="85.0" glowKnock="1"
+               glowCurve="70.0" glowHot="55.0" glowBlend="2" bevOn="0" bevStyle="1"
+               bevTech="0" bevDepth="100.0" bevUp="1" bevSize="5.0" bevSoften="0.0"
+               bevAA="1" bevContourOn="0" bevBevContour="0.0000,0.0000,1;1.0000,1.0000,1"
+               bevRange="100.0" bevGlobal="1" bevAngle="120.0" bevAlt="30.0"
+               bevContour="0.0000,0.0000,1;1.0000,1.0000,1" bevHiMode="2" bevHiCol="ffffffff"
+               bevHiOp="75.0" bevShMode="1" bevShCol="ff000000" bevShOp="75.0"
+               strokeOn="0" strokeCol="ff101014" strokeW="2.0" strokePos="0"
+               texMode="0" texName="Hairline" texDepth="50.0" texScale="25.0"
+               texAngle="0.0" shapeName=""/>
+    <Effect antialias="1" zoomSeparate="0" keepDir="0" centreX="50.0" centreY="50.0"
+            zoomX_f="70.0" zoomX_t="70.0" zoomX_m="0" zoomY_f="70.0" zoomY_t="70.0"
+            zoomY_m="0" offsetX_f="0.0" offsetX_t="0.0" offsetX_m="0" offsetY_f="0.0"
+            offsetY_t="0.0" offsetY_m="0" angle_f="0.0" angle_t="0.0" angle_m="0"
+            alpha_f="100.0" alpha_t="100.0" alpha_m="0" brightness_f="0.0"
+            brightness_t="0.0" brightness_m="0" contrast_f="0.0" contrast_t="0.0"
+            contrast_m="0" saturation_f="0.0" saturation_t="0.0" saturation_m="0"
+            hue_f="0.0" hue_t="0.0" hue_m="0">
+      <Mask1 enabled="0" type="0" orOp="0" biDir="0" start_f="-180.0" start_t="-180.0"
+             start_m="0" stop_f="180.0" stop_t="180.0" stop_m="0"/>
+      <Mask2 enabled="0" type="0" orOp="0" biDir="0" start_f="-180.0" start_t="-180.0"
+             start_m="0" stop_f="180.0" stop_t="180.0" stop_m="0"/>
+    </Effect>
+  </Layer>
+  <Layer name="Head" visible="1" solo="0">
+    <Primitive type="15" colour="4280427046" aspect="0.0" round="0.0" width="10.0"
+               length="80.0" step="12" angleStep="0.0" emboss="0.0" embossDiffuse="60.0"
+               ambient="35.0" lightDir="120.0" specular="0.0" specularWidth="25.0"
+               diffuse="0.0" gloss="0.0" text="Text" fontSize="24.0" bold="0"
+               italic="0" textAlign="0" imageFile="" fill="1" ledShape="0" ledOn="1"
+               ledFollow="0" ledSize="70.0" ledIntensity="100.0" ledCore="35.0"
+               ledOffLevel="22.0" ledGlow="45.0" ledBezel="14.0" ledBezelCol="ff202024"
+               meterOuterLen="0.0" meterLabels="" meterLabelGap="10.0" meterLabelsIn="0"
+               meterEvery="5" meterMinorLen="45.0" meterMinorW="65.0" meterStart="-135.0"
+               meterEnd="135.0" rayBend="0.0" raySkew="0.0" rayRound="0.0" shadOn="1"
+               shadCol="ff000000" shadOp="60.0" shadX="2.0" shadY="4.0" shadSize="6.0"
+               shadFade="80.0" shadKnock="1" shadCurve="0.0" shadHot="0.0" shadBlend="0"
+               innerOn="0" innerCol="ff000000" innerOp="55.0" innerX="4.0" innerY="4.0"
+               innerSize="8.0" innerFade="70.0" innerKnock="0" innerCurve="0.0"
+               innerHot="0.0" innerBlend="0" glowOn="0" glowCol="ffffd060" glowOp="75.0"
+               glowX="0.0" glowY="0.0" glowSize="12.0" glowFade="85.0" glowKnock="1"
+               glowCurve="70.0" glowHot="55.0" glowBlend="2" bevOn="1" bevStyle="1"
+               bevTech="0" bevDepth="140.0" bevUp="1" bevSize="4.0" bevSoften="2.0"
+               bevAA="1" bevContourOn="0" bevBevContour="0.0000,0.0000,1;1.0000,1.0000,1"
+               bevRange="100.0" bevGlobal="1" bevAngle="120.0" bevAlt="30.0"
+               bevContour="0.0000,0.0000,1;1.0000,1.0000,1" bevHiMode="2" bevHiCol="ffffffff"
+               bevHiOp="75.0" bevShMode="1" bevShCol="ff000000" bevShOp="75.0"
+               strokeOn="0" strokeCol="ff101014" strokeW="2.0" strokePos="0"
+               texMode="0" texName="Hairline" texDepth="50.0" texScale="25.0"
+               texAngle="0.0" shapeName="" shapePoints="0.5000,0.0500 0.7179,0.4375 0.7277,0.4568 0.7358,0.4769 0.7421,0.4977 0.7466,0.5189 0.7492,0.5404 0.7500,0.5621 0.7489,0.5838 0.7459,0.6053 0.7410,0.6264 0.7344,0.6470 0.7259,0.6670 0.7158,0.6862 0.7040,0.7045 0.6908,0.7216 0.6760,0.7375 0.6600,0.7521 0.6427,0.7653 0.6244,0.7769 0.6051,0.7868 0.5851,0.7951 0.5644,0.8016 0.5432,0.8062 0.5217,0.8091 0.5000,0.8100 0.4783,0.8091 0.4568,0.8062 0.4356,0.8016 0.4149,0.7951 0.3949,0.7868 0.3756,0.7769 0.3573,0.7653 0.3400,0.7521 0.3240,0.7375 0.3092,0.7216 0.2960,0.7045 0.2842,0.6862 0.2741,0.6670 0.2656,0.6470 0.2590,0.6264 0.2541,0.6053 0.2511,0.5838 0.2500,0.5621 0.2508,0.5404 0.2534,0.5189 0.2579,0.4977 0.2642,0.4769 0.2723,0.4568 0.2821,0.4375"/>
+    <Effect antialias="1" zoomSeparate="0" keepDir="0" centreX="50.0" centreY="50.0"
+            zoomX_f="98.0" zoomX_t="98.0" zoomX_m="0" zoomY_f="98.0" zoomY_t="98.0"
+            zoomY_m="0" offsetX_f="0.0" offsetX_t="0.0" offsetX_m="0" offsetY_f="0.0"
+            offsetY_t="0.0" offsetY_m="0" angle_f="-135.0" angle_t="135.0"
+            angle_m="1" alpha_f="100.0" alpha_t="100.0" alpha_m="0" brightness_f="0.0"
+            brightness_t="0.0" brightness_m="0" contrast_f="0.0" contrast_t="0.0"
+            contrast_m="0" saturation_f="0.0" saturation_t="0.0" saturation_m="0"
+            hue_f="0.0" hue_t="0.0" hue_m="0">
+      <Mask1 enabled="0" type="0" orOp="0" biDir="0" start_f="-180.0" start_t="-180.0"
+             start_m="0" stop_f="180.0" stop_t="180.0" stop_m="0"/>
+      <Mask2 enabled="0" type="0" orOp="0" biDir="0" start_f="-180.0" start_t="-180.0"
+             start_m="0" stop_f="180.0" stop_t="180.0" stop_m="0"/>
+    </Effect>
+  </Layer>
+  <Layer name="Pointer" visible="1" solo="0">
+    <Primitive type="10" colour="4294177258" aspect="0.0" round="100.0" width="4.0"
+               length="30.0" step="12" angleStep="0.0" emboss="0.0" embossDiffuse="60.0"
+               ambient="35.0" lightDir="120.0" specular="0.0" specularWidth="25.0"
+               diffuse="0.0" gloss="0.0" text="Text" fontSize="24.0" bold="0"
+               italic="0" textAlign="0" imageFile="" fill="1" ledShape="0" ledOn="1"
+               ledFollow="0" ledSize="70.0" ledIntensity="100.0" ledCore="35.0"
+               ledOffLevel="22.0" ledGlow="45.0" ledBezel="14.0" ledBezelCol="ff202024"
+               meterOuterLen="0.0" meterLabels="" meterLabelGap="10.0" meterLabelsIn="0"
+               meterEvery="5" meterMinorLen="45.0" meterMinorW="65.0" meterStart="-135.0"
+               meterEnd="135.0" rayBend="0.0" raySkew="0.0" rayRound="0.0" shadOn="0"
+               shadCol="ff000000" shadOp="60.0" shadX="4.0" shadY="4.0" shadSize="6.0"
+               shadFade="70.0" shadKnock="1" shadCurve="0.0" shadHot="0.0" shadBlend="0"
+               innerOn="0" innerCol="ff000000" innerOp="55.0" innerX="4.0" innerY="4.0"
+               innerSize="8.0" innerFade="70.0" innerKnock="0" innerCurve="0.0"
+               innerHot="0.0" innerBlend="0" glowOn="0" glowCol="ffffd060" glowOp="75.0"
+               glowX="0.0" glowY="0.0" glowSize="12.0" glowFade="85.0" glowKnock="1"
+               glowCurve="70.0" glowHot="55.0" glowBlend="2" bevOn="0" bevStyle="1"
+               bevTech="0" bevDepth="100.0" bevUp="1" bevSize="5.0" bevSoften="0.0"
+               bevAA="1" bevContourOn="0" bevBevContour="0.0000,0.0000,1;1.0000,1.0000,1"
+               bevRange="100.0" bevGlobal="1" bevAngle="120.0" bevAlt="30.0"
+               bevContour="0.0000,0.0000,1;1.0000,1.0000,1" bevHiMode="2" bevHiCol="ffffffff"
+               bevHiOp="75.0" bevShMode="1" bevShCol="ff000000" bevShOp="75.0"
+               strokeOn="0" strokeCol="ff101014" strokeW="2.0" strokePos="0"
+               texMode="0" texName="Hairline" texDepth="50.0" texScale="25.0"
+               texAngle="0.0" shapeName=""/>
+    <Effect antialias="1" zoomSeparate="0" keepDir="0" centreX="50.0" centreY="50.0"
+            zoomX_f="100.0" zoomX_t="100.0" zoomX_m="0" zoomY_f="100.0" zoomY_t="100.0"
+            zoomY_m="0" offsetX_f="0.0" offsetX_t="0.0" offsetX_m="0" offsetY_f="-25.0"
+            offsetY_t="-25.0" offsetY_m="0" angle_f="-135.0" angle_t="135.0"
+            angle_m="1" alpha_f="100.0" alpha_t="100.0" alpha_m="0" brightness_f="0.0"
+            brightness_t="0.0" brightness_m="0" contrast_f="0.0" contrast_t="0.0"
+            contrast_m="0" saturation_f="0.0" saturation_t="0.0" saturation_m="0"
+            hue_f="0.0" hue_t="0.0" hue_m="0">
+      <Mask1 enabled="0" type="0" orOp="0" biDir="0" start_f="-180.0" start_t="-180.0"
+             start_m="0" stop_f="180.0" stop_t="180.0" stop_m="0"/>
+      <Mask2 enabled="0" type="0" orOp="0" biDir="0" start_f="-180.0" start_t="-180.0"
+             start_m="0" stop_f="180.0" stop_t="180.0" stop_m="0"/>
+    </Effect>
+  </Layer>
+</LayerDoc>

@@ -5,6 +5,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "KnobStudio.h"
+#include "Looks.h"
 #include "PluginCanvas.h"
 #include "SchematicView.h"
 #include "Toolbox.h"
@@ -21,7 +22,8 @@
                        toolbox on the left), and Play, where the GUI is locked and plays like
                        the finished plugin. Empty (just the grid) until a project is open
         Schematic      its DSP blocks and wires; click a block to instruct the AI
-        Knob Studio    KnobMaker's tools, for shaping a knob or a panel
+        Knob Studio    KnobMaker's layer builder, for the looks of its knobs, sliders and
+                       switches (double-click one in Edit UI to open its look)
 */
 class Workspace final : public juce::Component
 {
@@ -46,8 +48,11 @@ public:
     /** name empty: no project is open. */
     void setProject (const juce::String& name, const juce::String& kindName);
 
-    /** The open project's gui folder (pictures, the Edit UI view); none: no project. */
+    /** The open project's gui folder (pictures, looks, the Edit UI view); none: no project. */
     void setGuiFolder (const juce::File& folder);
+
+    /** The looks the plugin's controls wear, and the Knob Studio edits. */
+    Looks& getLooks() noexcept                    { return looks; }
 
     /** The Edit UI banner: Stella AI at work on a request from an edit menu, then its answer. */
     void showAiWorking (const juce::String& what);
@@ -172,9 +177,11 @@ private:
     //==============================================================================
     void showPages();
 
+    Looks looks;   // before the canvas and the studio, which both use it
     PluginView pluginView;
     SchematicView schematicView;
-    KnobStudio studio;
+    KnobStudio studio { looks };
+    bool openingStudioForControl = false;
     juce::Component* aiPage = nullptr;
     TabIndex currentTab = aiTab;
 

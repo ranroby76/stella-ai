@@ -5,7 +5,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "GuiLayout.h"
-#include "KnobRenderer.h"
+#include "Looks.h"
 #include "Primitives.h"
 
 #include <functional>
@@ -32,7 +32,11 @@
     background picture). Drag to move (snapped), drag an element's corner handle to resize
     it, Delete removes it, the arrow keys nudge it (Shift: further). Dragging a group carries
     what's inside. The window's own corner handle resizes the window. Double-clicking a
-    knob opens its look in the Knob Studio; double-clicking a picture picks its file.
+    knob, slider or switch opens its look in the Knob Studio; double-clicking a picture
+    picks its file.
+
+    Knobs, sliders and switches are drawn from their looks (see Looks): a frame for each
+    value, made by KnobMaker's layer renderer.
 */
 class PluginCanvas final : public juce::Component,
                            public juce::DragAndDropTarget,
@@ -67,9 +71,16 @@ public:
     /** The presets a preset widget steps through, and the one chosen. */
     void setPresets (const juce::StringArray& names, int current);
 
-    /** The Knob Studio's edits: a look changed (or was added), or a knob got a look of its own. */
-    void setKnobStyle (const juce::String& name, const KnobStyle& style);
-    juce::String makeKnobUnique (int widgetIndex);
+    /** The looks knobs, sliders and switches are drawn from (owned by the Workspace). */
+    void setLooks (Looks& looksToUse);
+
+    /** A look changed, came or went: draw again. */
+    void looksChanged();
+
+    /** A control takes a look; or gets a copy of its look of its own (named after its caption,
+        returned), so changing it changes only that control. */
+    void useLook (int widgetIndex, const juce::String& lookName);
+    juce::String giveOwnLook (int widgetIndex);
 
     /** Edit mode: a primitive's element, centred on a point of the plugin window (in its
         pixels), or in the middle of what's showing. A background primitive asks for the
@@ -101,8 +112,9 @@ public:
     //==========================================================================
     /** For Export: the GUI as images the exported plugin draws from. Everything that never
         moves is in the background (pictures too); each control's moving part is a strip of
-        frames (knobs with the same look and size share one). Meters, scopes, curves and XY
-        dots are drawn live by the plugin itself. */
+        frames (controls with the same look and size share one: their look's own frames, a
+        switch's off and on). Meters, scopes, curves and XY dots are drawn live by the plugin
+        itself. */
     struct Bake
     {
         juce::Image background;
@@ -122,7 +134,7 @@ public:
 
     std::function<void (int index, float value)> onParameterChanged;
     std::function<void()> onLayoutEdited;                          // save it
-    std::function<void (int widgetIndex)> onEditKnob;              // open its look in the Knob Studio
+    std::function<void (int widgetIndex)> onEditLook;              // open a control's look in the Knob Studio
     std::function<void (int presetIndex)> onPresetChosen;          // a preset widget was clicked in Play mode
 
     /** Live data, read about 30 times a second. */
@@ -196,8 +208,13 @@ private:
     void drawPanel (juce::Graphics&);   // the window's colours and background picture, in plugin pixels
     void drawPicture (juce::Graphics&, const juce::String& name, juce::Rectangle<float> area, const juce::String& mode);
     juce::Rectangle<int> movingAreaOf (const GuiWidget& widget) const;
-    KnobRenderer& rendererFor (const juce::String& style);
     juce::Rectangle<int> knobSquare (const GuiWidget& widget) const;
+
+    /** A knob's, slider's or switch's look: its frame for a value, in its moving area. */
+    void drawLook (juce::Graphics&, const GuiWidget&, juce::Rectangle<int> area, float value);
+
+    /** The look most of the window's controls of this kind wear, for a new one (none: the default). */
+    juce::String commonLook (const GuiWidget& widget) const;
     void edited();
     void reportSources();
 
@@ -257,7 +274,7 @@ private:
     GuiLayout layout;
     juce::Array<Param> params;
     std::map<int, float> values;                                   // by parameter index
-    std::map<juce::String, std::unique_ptr<KnobRenderer>> renderers;
+    Looks* looks = nullptr;
     juce::StringArray signalSources, displaySources;
     juce::StringArray presetNames;
     int currentPreset = -1;

@@ -2,6 +2,7 @@
 
 #include "ProjectTools.h"
 #include "GuiLayout.h"
+#include "Looks.h"
 #include "PresetBank.h"
 #include "WasmCompiler.h"
 
@@ -114,7 +115,7 @@ juce::var ProjectTools::getDefinitions (bool builder) const
 
     {
         auto props = object();
-        props.getDynamicObject()->setProperty ("layout", property ("object", "The whole GUI: { \"format\": 1, \"width\", \"height\", \"background\", \"styles\", \"widgets\": [...] }"));
+        props.getDynamicObject()->setProperty ("layout", property ("object", "The whole GUI: { \"format\": 1, \"width\", \"height\", \"background\", \"widgets\": [...] }"));
         tools.add (tool ("set_layout",
                          "Replaces the plugin's GUI (gui/layout.json). It shows at once; no build needed. "
                          "Read gui/layout.json first and edit it, to keep what the user arranged by hand.",
@@ -236,6 +237,31 @@ juce::String ProjectTools::describeProject() const
         {
             const auto size = pictureSize (f);
             text << "- " << f.getFileName() << " (" << size.x << " x " << size.y << ")\n";
+        }
+    }
+
+    // The looks knobs, sliders and switches can wear.
+    {
+        Looks looks;
+        looks.setGuiFolder (project.getGuiFolder());
+
+        text << "\nLooks for knobs, sliders and switches (a control's \"style\"; without one it wears its kind's default):\n";
+
+        for (const auto kind : { Looks::Kind::knob, Looks::Kind::slider, Looks::Kind::sliderAcross, Looks::Kind::button })
+        {
+            juce::StringArray entries;
+
+            for (const auto* look : looks.listFor (kind))
+                entries.add (look->name
+                             + (look->description.isNotEmpty() ? " (" + look->description + ")" : juce::String())
+                             + (look->origin == Looks::Origin::project ? juce::String (" [this plugin's own]")
+                                : look->origin == Looks::Origin::mine  ? juce::String (" [the user's]") : juce::String()));
+
+            text << "- " << (kind == Looks::Kind::knob         ? "knobs"
+                           : kind == Looks::Kind::slider       ? "sliders"
+                           : kind == Looks::Kind::sliderAcross ? "sliders across, \"orientation\": \"horizontal\""
+                                                               : "switches")
+                 << " (default " << looks.defaultFor (kind).name << "): " << entries.joinIntoString ("; ") << "\n";
         }
     }
 
@@ -502,11 +528,15 @@ void ProjectTools::run (const juce::String& name, const juce::var& input, Done d
         const auto json = input.getProperty ("layout", {});
 
         if (! json.isObject() || json.getProperty ("widgets", {}).getArray() == nullptr)
-            return fail ("The layout needs a \"widgets\" list (and usually width, height, background and styles).");
+            return fail ("The layout needs a \"widgets\" list (and usually width, height and background).");
 
         // Read through the layout model, so what's saved is always valid and tidy.
         const auto layout = GuiLayout::fromVar (json);
         const auto file = project.getGuiFolder().getChildFile (GuiLayout::fileName);
+
+        // What it wore before: an old name that was already there isn't Stella's to answer for.
+        GuiLayout before;
+        GuiLayout::load (file, before);
 
         if (const auto saved = layout.save (file); saved.failed())
             return fail (saved.getErrorMessage());
@@ -538,6 +568,25 @@ void ProjectTools::run (const juce::String& name, const juce::var& input, Done d
             if (w.type == GuiWidget::Type::image && w.image.isNotEmpty() && ! pictures.getChildFile (w.image).existsAsFile())
                 missingPictures.addIfNotAlreadyThere (w.image);
 
+        // Looks must exist, for that kind of control.
+        juce::StringArray unknownLooks;
+
+        {
+            Looks looks;
+            looks.setGuiFolder (project.getGuiFolder());
+
+            juce::StringArray woreBefore;
+
+            for (const auto& w : before.widgets)
+                if (Looks::takesLook (w))
+                    woreBefore.addIfNotAlreadyThere (Looks::kindName (Looks::kindOf (w)) + "|" + w.style);
+
+            for (const auto& w : layout.widgets)
+                if (Looks::takesLook (w) && w.style.isNotEmpty() && ! woreBefore.contains (Looks::kindName (Looks::kindOf (w)) + "|" + w.style))
+                    if (const auto* look = looks.find (w.style); look == nullptr || look->kind != Looks::kindOf (w))
+                        unknownLooks.addIfNotAlreadyThere (w.style);
+        }
+
         if (onLayoutChanged != nullptr)
             onLayoutChanged();
 
@@ -545,7 +594,10 @@ void ProjectTools::run (const juce::String& name, const juce::var& input, Done d
                   + " x " + juce::String (layout.height) + "."
                   + (unbound.isEmpty() ? juce::String() : "\nThese parameter ids don't exist in the plugin (fix them): " + unbound.joinIntoString (", "))
                   + (missingPictures.isEmpty() ? juce::String()
-                                               : "\nThese pictures aren't in gui/images (use only the listed ones): " + missingPictures.joinIntoString (", ")),
+                                               : "\nThese pictures aren't in gui/images (use only the listed ones): " + missingPictures.joinIntoString (", "))
+                  + (unknownLooks.isEmpty() ? juce::String()
+                                            : "\nThese looks don't exist for those controls, so they show a default (use only the listed looks, of the right kind): "
+                                                  + unknownLooks.joinIntoString (", ")),
               false);
         return;
     }

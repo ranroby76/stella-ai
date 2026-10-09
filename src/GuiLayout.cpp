@@ -19,15 +19,6 @@ namespace
     {
         return v.hasProperty (key) ? (int) v.getProperty (key, fallback) : fallback;
     }
-
-    KnobStyle presetNamed (const juce::String& name)
-    {
-        const auto n = name.toLowerCase();
-
-        if (n.contains ("black"))                       return KnobStyle::black();
-        if (n.contains ("metal") || n.contains ("silver")) return KnobStyle::brushedMetal();
-        return KnobStyle::cream();
-    }
 }
 
 //==============================================================================
@@ -95,57 +86,6 @@ GuiWidget::Type GuiLayout::typeFromName (const juce::String& name)
 }
 
 //==============================================================================
-juce::var GuiLayout::styleToVar (const KnobStyle& style)
-{
-    auto json = object();
-
-    for (const auto& p : KnobStyle::colourParams())
-        set (json, p.id, colourToString (style.*(p.member)));
-
-    for (const auto& p : KnobStyle::floatParams())
-        set (json, p.id, style.*(p.member));
-
-    for (const auto& p : KnobStyle::intParams())
-        set (json, p.id, style.*(p.member));
-
-    for (const auto& p : KnobStyle::boolParams())
-        set (json, p.id, style.*(p.member));
-
-    return json;
-}
-
-KnobStyle GuiLayout::styleFromVar (const juce::var& json)
-{
-    auto style = presetNamed (json.getProperty ("preset", {}).toString());
-
-    for (const auto& p : KnobStyle::colourParams())
-        if (json.hasProperty (p.id))
-            style.*(p.member) = colourFromString (json.getProperty (p.id, {}).toString(), style.*(p.member));
-
-    for (const auto& p : KnobStyle::floatParams())
-        if (json.hasProperty (p.id))
-            style.*(p.member) = juce::jlimit (p.min, p.max, (float) (double) json.getProperty (p.id, 0.0));
-
-    for (const auto& p : KnobStyle::intParams())
-        if (json.hasProperty (p.id))
-            style.*(p.member) = juce::jlimit (p.min, p.max, (int) json.getProperty (p.id, 0));
-
-    for (const auto& p : KnobStyle::boolParams())
-        if (json.hasProperty (p.id))
-            style.*(p.member) = (bool) json.getProperty (p.id, false);
-
-    return style;
-}
-
-KnobStyle GuiLayout::styleFor (const juce::String& name) const
-{
-    if (const auto found = styles.find (name); found != styles.end())
-        return found->second;
-
-    return presetNamed (name);
-}
-
-//==============================================================================
 GuiLayout GuiLayout::fromVar (const juce::var& json)
 {
     GuiLayout layout;
@@ -160,10 +100,6 @@ GuiLayout GuiLayout::fromVar (const juce::var& json)
 
     if (const auto mode = background.getProperty ("mode", {}).toString().trim().toLowerCase(); pictureModes().contains (mode))
         layout.backgroundMode = mode;
-
-    if (auto* stylesObject = json.getProperty ("styles", {}).getDynamicObject())
-        for (const auto& entry : stylesObject->getProperties())
-            layout.styles[entry.name.toString()] = styleFromVar (entry.value);
 
     if (const auto* list = json.getProperty ("widgets", {}).getArray())
         for (const auto& item : *list)
@@ -191,13 +127,6 @@ juce::var GuiLayout::toVar() const
 
     set (json, "background", background);
 
-    auto stylesJson = object();
-
-    for (const auto& [name, style] : styles)
-        set (stylesJson, name, styleToVar (style));
-
-    set (json, "styles", stylesJson);
-
     juce::Array<juce::var> list;
 
     for (const auto& w : widgets)
@@ -217,7 +146,7 @@ GuiWidget GuiLayout::widgetFromVar (const juce::var& item)
     if (w.label.isEmpty())
         w.label = item.getProperty ("label", item.getProperty ("text", {})).toString();
 
-    w.style = item.getProperty ("style", {}).toString();
+    w.style = item.getProperty ("style", item.getProperty ("look", {})).toString().trim();
     w.colour = colourFromString (item.getProperty ("color", item.getProperty ("colour", {})).toString(), juce::Colours::transparentBlack);
     w.fontSize = (float) (double) item.getProperty ("size", 0.0);
     w.bold = (bool) item.getProperty ("bold", false);
@@ -402,9 +331,8 @@ juce::Result GuiLayout::save (const juce::File& file) const
 GuiLayout GuiLayout::makeDefault (const juce::Array<ParamInfo>& params, const juce::String& title)
 {
     // One titled group per module, its controls in rows of up to four: plain, tidy, and a
-    // starting point for Stella AI or the user to reshape.
+    // starting point for Stella AI or the user to reshape. The controls take the default looks.
     GuiLayout layout;
-    layout.styles["main"] = KnobStyle::black();
 
     constexpr int margin = 20, knob = 52, cell = 76, rowH = knob + captionHeight + 18, perRow = 4, titleH = 44;
     constexpr int maxWidth = 1100;
@@ -471,7 +399,6 @@ GuiLayout GuiLayout::makeDefault (const juce::Array<ParamInfo>& params, const ju
             else
             {
                 w.type = GuiWidget::Type::knob;
-                w.style = "main";
                 w.bounds = { cx + (cell - knob) / 2, cy, knob, knob + captionHeight };
             }
 

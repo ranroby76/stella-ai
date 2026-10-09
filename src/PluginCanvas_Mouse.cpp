@@ -796,8 +796,8 @@ void PluginCanvas::mouseDoubleClick (const juce::MouseEvent& e)
 
     if (design)
     {
-        if (w.type == GuiWidget::Type::knob && onEditKnob != nullptr)
-            onEditKnob (index);
+        if (Looks::takesLook (w) && onEditLook != nullptr)
+            onEditLook (index);
         else if (w.type == GuiWidget::Type::image)
             choosePicture (index);
 

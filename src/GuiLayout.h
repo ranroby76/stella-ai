@@ -4,8 +4,6 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
-#include "KnobStyle.h"
-
 #include <map>
 #include <vector>
 
@@ -22,8 +20,8 @@ struct GuiWidget
     juce::Rectangle<int> bounds;   // in the plugin window's pixels; controls include their caption
     juce::String param;            // "<moduleId>.<paramId>" for controls
     juce::String label;            // a control's caption, a group's title, or a label's text
-    juce::String style;            // knobs: a style name from the layout's styles, or a preset
-    juce::Colour colour;           // sliders, switches, labels: the accent (transparent: the default)
+    juce::String style;            // knobs, sliders, switches: the name of a look (see Looks)
+    juce::Colour colour;           // labels, frames, selectors and the like: their colour (transparent: the default)
     float fontSize = 0.0f;         // labels and group titles (0: the default)
     bool bold = false;
     bool vertical = true;          // sliders
@@ -60,10 +58,10 @@ struct GuiWidget
 //==============================================================================
 /**
     The plugin's GUI as data, kept in the project as gui/layout.json. Stella AI drafts it,
-    the user reshapes it in the Edit UI tab, and the studio draws it: knobs come from
-    KnobMaker's renderer (KnobStyle), so they look the same in the Knob Studio, on the
-    canvas and in the exported plugin. Pictures (a background, or picture elements) are
-    files in the project's gui/images folder.
+    the user reshapes it in the Edit UI tab, and the studio draws it. Knobs, sliders and
+    switches name a look: KnobMaker layer documents, made in the Knob Studio (see Looks),
+    so they look the same there, on the canvas and in the exported plugin. Pictures (a
+    background, or picture elements) are files in the project's gui/images folder.
 */
 class GuiLayout
 {
@@ -72,7 +70,6 @@ public:
     juce::Colour backgroundTop { 0xff2b2b30 }, backgroundBottom { 0xff17171a };
     juce::String backgroundImage;              // a file in gui/images, over the colours (empty: none)
     juce::String backgroundMode { "fill" };    // how it covers the window (see pictureModes)
-    std::map<juce::String, KnobStyle> styles;
     std::vector<GuiWidget> widgets;
 
     static constexpr const char* fileName = "layout.json";   // in the project's gui folder
@@ -112,15 +109,6 @@ public:
     };
 
     static GuiLayout makeDefault (const juce::Array<ParamInfo>& params, const juce::String& title);
-
-    /** A style by name: the layout's own, or one of KnobMaker's presets ("cream", "black",
-        "metal"). Unknown names get the default. */
-    KnobStyle styleFor (const juce::String& name) const;
-
-    /** KnobStyle as JSON: every field by name, colours as "#AARRGGBB". Reading starts from
-        the "preset" field (cream, black or metal) and applies the fields given. */
-    static juce::var styleToVar (const KnobStyle& style);
-    static KnobStyle styleFromVar (const juce::var& json);
 
     static juce::String typeName (GuiWidget::Type type);
     static GuiWidget::Type typeFromName (const juce::String& name);
