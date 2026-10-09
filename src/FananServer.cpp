@@ -4,6 +4,8 @@
 
 #include <juce_cryptography/juce_cryptography.h>
 
+#include <algorithm>
+#include <iterator>
 #include <random>
 
 namespace
@@ -13,12 +15,23 @@ namespace
     constexpr const char* builtInAppId   = "6ac03f5bd8e7cddad8252682";
     constexpr const char* builtInSiteUrl = "https://rugged-stella-studio-flow.base44.app";
 
-    constexpr int probeTimeoutMs = 8000;
-    constexpr int chatTimeoutMs  = 320000;   // a building step can take minutes: Base44 allows 5, plus a margin
+    // How long to wait for an answer. A server that was asleep takes a while to wake: the
+    // studio waits for it, rather than giving up early and asking again (which can keep it
+    // from ever waking).
+    constexpr int helloTimeoutMs    = 30000;
+    constexpr int accountTimeoutMs  = 20000;    // signing in and out
+    constexpr int internetTimeoutMs = 5000;     // the internet test, only after a failure
+    constexpr int chatTimeoutMs     = 320000;   // a building step can take minutes: Base44 allows 5, plus a margin
+    constexpr int overdueMarginMs   = 5000;     // past its timeout plus this, a request is broken off
+
+    // When to check again.
     constexpr int onlineCheckMs  = 120000;
     constexpr int offlineCheckMs = 10000;
+    constexpr int retryMs[]      = { 1000, 2000, 4000, 8000 };   // the first tries after a failure; then offlineCheckMs
     constexpr int watchCheckMs   = 6000;
     constexpr int watchChecks    = 100;      // ten minutes: signing in and paying take a while
+
+    constexpr juce::int64 logLimitBytes = 256 * 1024;   // past this, the older half of the log goes
 
     juce::var object()
     {
@@ -77,20 +90,24 @@ FananServer::FananServer (Settings s)
         saveIdentity();
     }
 
+    writeLog (juce::String ("Stella AI Studio ") + JUCE_APPLICATION_VERSION_STRING + " started");
+
+    watchdog.startTimer (1000);
     startCheck();
 }
 
 FananServer::~FananServer()
 {
     stopTimer();
+    watchdog.stopTimer();
     alive->store (false);
 
     // Waiting requests are broken off, so quitting never hangs on the network.
     {
         const juce::ScopedLock lock (streamsLock);
 
-        for (auto* stream : activeStreams)
-            stream->cancel();
+        for (auto& waiting : activeStreams)
+            waiting.stream->cancel();
     }
 
     workers.removeAllJobs (true, 4000);
@@ -289,7 +306,7 @@ void FananServer::runCheck()
         body.getDynamicObject()->setProperty ("device", deviceHash());
         body.getDynamicObject()->setProperty ("app", juce::String ("Stella AI Studio ") + JUCE_APPLICATION_VERSION_STRING);
 
-        const auto response = post ("stellaAccount", body, probeTimeoutMs);
+        const auto response = post ("stellaAccount", body, helloTimeoutMs);
 
         if (response.connected && response.status == 200 && (bool) response.body.getProperty ("ok", false))
         {
@@ -319,11 +336,15 @@ void FananServer::runCheck()
 
 void FananServer::setState (const Snapshot& snapshot)
 {
-    bool identityChanged = false;
+    bool identityChanged = false, statusChanged = false;
+    const bool reached = snapshot.status == Status::online || snapshot.status == Status::notSetUp;
+
+    failedChecks = reached ? 0 : failedChecks + 1;
 
     {
         const juce::ScopedLock lock (stateLock);
 
+        statusChanged = status != snapshot.status;
         status = snapshot.status;
 
         if (snapshot.known)
@@ -350,6 +371,9 @@ void FananServer::setState (const Snapshot& snapshot)
     if (identityChanged)
         saveIdentity();
 
+    if (statusChanged)
+        writeLog ("Now " + statusName (snapshot.status));
+
     scheduleNextCheck();
 
     if (onStateChanged != nullptr)
@@ -366,7 +390,30 @@ void FananServer::scheduleNextCheck()
     }
 
     const auto current = getStatus();
-    startTimer (current == Status::online || current == Status::notSetUp ? onlineCheckMs : offlineCheckMs);
+
+    if (current == Status::online || current == Status::notSetUp)
+    {
+        startTimer (onlineCheckMs);
+        return;
+    }
+
+    // Not reached: again in a second or two, then every few seconds.
+    const auto quickTries = (int) std::size (retryMs);
+    startTimer (failedChecks >= 1 && failedChecks <= quickTries ? retryMs[failedChecks - 1] : offlineCheckMs);
+}
+
+juce::String FananServer::statusName (Status s)
+{
+    switch (s)
+    {
+        case Status::checking:    return "connecting";
+        case Status::online:      return "online";
+        case Status::notSetUp:    return "online, not set up";
+        case Status::noInternet:  return "no internet";
+        case Status::serverDown:  return "the server isn't answering";
+    }
+
+    return {};
 }
 
 //==============================================================================
@@ -395,7 +442,7 @@ void FananServer::signIn (bool thenBuy, const juce::String& emailHint, Done done
             return;
 
         // A one-time link: it works once, for a few minutes, and only for this computer.
-        const auto response = post ("stellaAccount", makeRequest ("link"), probeTimeoutMs);
+        const auto response = post ("stellaAccount", makeRequest ("link"), accountTimeoutMs);
         const auto linkToken = response.body.getProperty ("link", {}).toString();
 
         auto result = juce::Result::ok();
@@ -436,7 +483,7 @@ void FananServer::signOut (Done done)
         if (! stillAlive->load())
             return;
 
-        const auto response = post ("stellaAccount", makeRequest ("unlink"), probeTimeoutMs);
+        const auto response = post ("stellaAccount", makeRequest ("unlink"), accountTimeoutMs);
 
         auto result = juce::Result::ok();
 
@@ -516,15 +563,19 @@ FananServer::Response FananServer::post (const juce::String& function, const juc
             << "Accept: application/json\r\n"
             << "Content-Type: application/json\r\n";
 
-    return fetch (url, headers, timeoutMs, true);
+    const auto action = body.getProperty ("action", {}).toString();
+    return fetch (url, headers, timeoutMs, true, function + (action.isNotEmpty() ? " " + action : juce::String()));
 }
 
-FananServer::Response FananServer::fetch (const juce::URL& url, const juce::String& headers, int timeoutMs, bool isPost)
+FananServer::Response FananServer::fetch (const juce::URL& url, const juce::String& headers, int timeoutMs, bool isPost,
+                                          const juce::String& what)
 {
     Response response;
 
     if (! alive->load())
         return response;
+
+    const auto started = juce::Time::getMillisecondCounter();
 
     juce::WebInputStream stream (url, isPost);
     stream.withExtraHeaders (headers)
@@ -533,7 +584,7 @@ FananServer::Response FananServer::fetch (const juce::URL& url, const juce::Stri
 
     {
         const juce::ScopedLock lock (streamsLock);
-        activeStreams.add (&stream);
+        activeStreams.push_back ({ &stream, started + (juce::uint32) (timeoutMs + overdueMarginMs), false });
     }
 
     if (alive->load() && stream.connect (nullptr))
@@ -545,25 +596,89 @@ FananServer::Response FananServer::fetch (const juce::URL& url, const juce::Stri
             response.body = juce::JSON::parse (stream.readEntireStreamAsString());
     }
 
+    bool brokenOff = false;
+
     {
         const juce::ScopedLock lock (streamsLock);
-        activeStreams.removeFirstMatchingValue (&stream);
+
+        const auto found = std::find_if (activeStreams.begin(), activeStreams.end(),
+                                         [&stream] (const Waiting& w) { return w.stream == &stream; });
+
+        if (found != activeStreams.end())
+        {
+            brokenOff = found->brokenOff;
+            activeStreams.erase (found);
+        }
+    }
+
+    if (alive->load())
+    {
+        const auto seconds = juce::String ((double) (juce::Time::getMillisecondCounter() - started) / 1000.0, 1) + " s";
+
+        if (response.connected)
+        {
+            const auto ok = ! response.body.isObject() || (bool) response.body.getProperty ("ok", false);
+            const auto message = response.body.getProperty ("message", response.body.getProperty ("error", {})).toString();
+
+            writeLog (what + ": answered " + juce::String (response.status) + (ok ? "" : " (not ok)") + " in " + seconds
+                      + (message.isNotEmpty() ? " - " + message.substring (0, 160) : juce::String()));
+        }
+        else
+        {
+            writeLog (what + ": no answer after " + seconds
+                      + (brokenOff ? " (broken off: it hung past its time)"
+                         : juce::Time::getMillisecondCounter() - started + 1000 >= (juce::uint32) timeoutMs ? " (timed out)"
+                                                                                                             : " (couldn't connect)"));
+        }
     }
 
     return response;
+}
+
+void FananServer::cancelOverdue()
+{
+    const auto now = juce::Time::getMillisecondCounter();
+    const juce::ScopedLock lock (streamsLock);
+
+    for (auto& waiting : activeStreams)
+    {
+        if (! waiting.brokenOff && (juce::int32) (now - waiting.deadline) > 0)
+        {
+            waiting.brokenOff = true;
+            waiting.stream->cancel();
+        }
+    }
 }
 
 bool FananServer::canReachInternet()
 {
     for (const auto& address : settings.internetTestUrls)
     {
-        const auto response = fetch (juce::URL (address), {}, probeTimeoutMs, false);
+        const auto response = fetch (juce::URL (address), {}, internetTimeoutMs, false, "internet test " + juce::URL (address).getDomain());
 
         if (response.connected && response.status >= 200 && response.status < 400)
             return true;
     }
 
     return false;
+}
+
+void FananServer::writeLog (const juce::String& line)
+{
+    static juce::CriticalSection logLock;
+    const juce::ScopedLock lock (logLock);
+
+    const auto file = getIdentityFile().getSiblingFile ("connection.log");
+    file.getParentDirectory().createDirectory();
+
+    // Kept short: the latest few thousand lines tell what happened.
+    if (file.getSize() > logLimitBytes)
+    {
+        const auto text = file.loadFileAsString();
+        file.replaceWithText (text.substring (text.length() / 2).fromFirstOccurrenceOf ("\n", false, false));
+    }
+
+    file.appendText (juce::Time::getCurrentTime().formatted ("%Y-%m-%d %H:%M:%S  ") + line + "\n");
 }
 
 void FananServer::deliver (std::function<void()> fn)

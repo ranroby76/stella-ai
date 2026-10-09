@@ -8,6 +8,7 @@
 #include <atomic>
 #include <functional>
 #include <memory>
+#include <vector>
 
 //==============================================================================
 /**
@@ -26,6 +27,11 @@
     The connection is watched all the time, and "no internet" is told apart from "Fanan's
     server isn't answering", so the user is warned with the right message. Nothing here
     names the AI service behind the server.
+
+    A server that was asleep takes a while to wake, so the studio waits for its answer
+    rather than giving up early; after a failure it tries again within a second or two, and
+    a request that outlives its time is broken off. Every request is noted, with how long it
+    took, in connection.log beside account.json.
 
     Network waits happen on worker threads; every answer arrives on the message thread.
 */
@@ -46,7 +52,7 @@ public:
         juce::String serverUrl { "https://base44.app" };
         juce::String appId;      // the Stella AI Cloud app on Base44
         juce::String siteUrl;    // the Stella site: /link signs in and links, /buy sells credits
-        juce::StringArray internetTestUrls { "https://www.msftconnecttest.com/connecttest.txt",
+        juce::StringArray internetTestUrls { "http://www.msftconnecttest.com/connecttest.txt",
                                              "https://1.1.1.1/cdn-cgi/trace" };
     };
 
@@ -117,8 +123,11 @@ private:
     void scheduleNextCheck();
 
     Response post (const juce::String& function, const juce::var& body, int timeoutMs);
-    Response fetch (const juce::URL& url, const juce::String& headers, int timeoutMs, bool isPost);
+    Response fetch (const juce::URL& url, const juce::String& headers, int timeoutMs, bool isPost, const juce::String& what);
     bool canReachInternet();
+    void cancelOverdue();
+    static void writeLog (const juce::String& line);
+    static juce::String statusName (Status status);
     juce::var makeRequest (const juce::String& action) const;
     static juce::String failureText (const Response& response, const juce::String& fallback);
 
@@ -141,9 +150,29 @@ private:
 
     std::atomic<bool> checking { false };
     int fastChecksLeft = 0;
+    int failedChecks = 0;   // checks in a row that didn't reach the server (message thread)
+
+    /** A request under way, and when it's broken off if it's still waiting. */
+    struct Waiting
+    {
+        juce::WebInputStream* stream = nullptr;
+        juce::uint32 deadline = 0;   // in Time::getMillisecondCounter() terms
+        bool brokenOff = false;
+    };
 
     juce::CriticalSection streamsLock;
-    juce::Array<juce::WebInputStream*> activeStreams;
+    std::vector<Waiting> activeStreams;
+
+    /** Breaks off requests that outlive their time: Windows doesn't always keep to the
+        timeouts it's given (a stalled lookup or handshake can hang for minutes). */
+    struct Watchdog final : public juce::Timer
+    {
+        explicit Watchdog (FananServer& o) : owner (o) {}
+        void timerCallback() override   { owner.cancelOverdue(); }
+        FananServer& owner;
+    };
+
+    Watchdog watchdog { *this };
 
     std::shared_ptr<std::atomic<bool>> alive = std::make_shared<std::atomic<bool>> (true);
 
