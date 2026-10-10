@@ -103,6 +103,8 @@ MainComponent::MainComponent (Settings& s)
 
     topBar.onNew = [this] { newProject(); };
     topBar.onOpen = [this] { openProject(); };
+    topBar.onSave = [this] { saveProject(); };
+    topBar.onSaveAs = [this] { saveProjectAs(); };
     topBar.onAudioSettings = [this] { showAudioSettings(); };
     topBar.takePeak = [this] (int channel) { return engine.takePeak (channel); };
     topBar.audioLoad = [this] { return engine.getCpuLoad(); };
@@ -266,6 +268,7 @@ MainComponent::~MainComponent()
     presetDialog = nullptr;
     audioSettingsWindow = nullptr;
     newProjectDialog = nullptr;
+    saveAsDialog = nullptr;
     signOutDialog = nullptr;
     autoLayoutDialog = nullptr;
 }
@@ -614,11 +617,22 @@ void MainComponent::undoOrRedo (bool redo)
 
 bool MainComponent::keyPressed (const juce::KeyPress& key)
 {
+    const auto mods = key.getModifiers();
+
+    // Ctrl+S saves, Ctrl+Shift+S saves a copy: from anywhere.
+    if (mods.isCommandDown() && (key.getKeyCode() == 'S' || key.getKeyCode() == 's'))
+    {
+        if (mods.isShiftDown())
+            saveProjectAs();
+        else
+            saveProject();
+
+        return true;
+    }
+
     // Text boxes keep their own undo.
     if (dynamic_cast<juce::TextEditor*> (juce::Component::getCurrentlyFocusedComponent()) != nullptr)
         return false;
-
-    const auto mods = key.getModifiers();
 
     if (mods.isCommandDown() && (key.getKeyCode() == 'Z' || key.getKeyCode() == 'z'))
     {
@@ -1147,6 +1161,80 @@ void MainComponent::newProject()
             return;
 
         if (auto* nameEditor = safeThis->newProjectDialog->getTextEditor ("name"))
+        {
+            nameEditor->grabKeyboardFocus();
+            nameEditor->selectAll();
+        }
+    });
+}
+
+void MainComponent::saveProject()
+{
+    if (! project.isOpen())
+        return;
+
+    // Everything else is written as it changes.
+    flushLayoutSave();
+    topBar.showNotice ("Saved");
+}
+
+void MainComponent::saveProjectAs()
+{
+    if (! project.isOpen() || saveAsDialog != nullptr)
+        return;
+
+    // Stella AI writes into the project as she works: the copy waits until she's done.
+    if (ai.isBusy())
+    {
+        showError ("Stella AI is still working", "Save a copy once she's finished.");
+        return;
+    }
+
+    flushLayoutSave();
+
+    saveAsDialog = std::make_unique<juce::AlertWindow> (juce::String::fromUTF8 ("Save as\xe2\x80\xa6"),
+                                                        "A copy of this plugin in a new folder, to go on with under a new name. "
+                                                        "This one stays as it is.",
+                                                        juce::MessageBoxIconType::NoIcon, this);
+
+    saveAsDialog->addTextEditor ("name", project.getInfo().name + " 2", "Name");
+    saveAsDialog->addButton ("Save", 1, juce::KeyPress (juce::KeyPress::returnKey));
+    saveAsDialog->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+
+    saveAsDialog->enterModalState (true, juce::ModalCallbackFunction::create (
+        [safeThis = juce::Component::SafePointer<MainComponent> (this)] (int result)
+        {
+            if (safeThis == nullptr || safeThis->saveAsDialog == nullptr)
+                return;
+
+            const auto name = safeThis->saveAsDialog->getTextEditorContents ("name").trim();
+            safeThis->saveAsDialog->setVisible (false);
+
+            if (result == 1)
+            {
+                const auto saved = safeThis->project.saveAs (name);
+
+                if (saved.failed())
+                    safeThis->showError ("Couldn't save a copy", saved.getErrorMessage());
+                else
+                    safeThis->topBar.showNotice ("Saved as " + safeThis->project.getInfo().name);
+            }
+
+            // Let the modal machinery finish with the dialog before it goes.
+            juce::MessageManager::callAsync ([safeThis]
+            {
+                if (safeThis != nullptr)
+                    safeThis->saveAsDialog = nullptr;
+            });
+        }), false);
+
+    // The name is ready to be typed over.
+    juce::MessageManager::callAsync ([safeThis = juce::Component::SafePointer<MainComponent> (this)]
+    {
+        if (safeThis == nullptr || safeThis->saveAsDialog == nullptr)
+            return;
+
+        if (auto* nameEditor = safeThis->saveAsDialog->getTextEditor ("name"))
         {
             nameEditor->grabKeyboardFocus();
             nameEditor->selectAll();

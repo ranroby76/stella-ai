@@ -46,12 +46,17 @@ public:
 
     std::function<void()> onNew;
     std::function<void()> onOpen;
+    std::function<void()> onSave;     // what's waiting is written at once
+    std::function<void()> onSaveAs;   // the plugin copied into a new folder, under a new name
     std::function<void()> onRevealProject;
     std::function<void()> onCloseProject;
     std::function<void (const juce::File& projectFile)> onOpenRecent;
 
     /** Asked for each time the Options menu opens: recent project files, newest first. */
     std::function<juce::StringArray()> recentProjects;
+
+    /** A short word beside the device pill for a moment: "Saved". */
+    void showNotice (const juce::String& text);
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -127,6 +132,9 @@ private:
 
     bool hasProject = false;
     juce::Rectangle<int> wordmarkArea, fananArea, loadArea;   // empty when the window is too narrow for them
+    juce::Rectangle<int> noticeArea;                          // between the device pill and the tabs
+    juce::String notice;
+    juce::uint32 noticeUntil = 0;                             // when it goes (milliseconds)
     juce::Image fananLogo;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (TopBar)

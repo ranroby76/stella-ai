@@ -37,9 +37,10 @@ struct ProjectInfo
         <folder>/gui/             its GUI layout and widget styles
         <folder>/assets/          images and other files the plugin carries
 
-    There is no Save: the AI writes straight into the folder and the compiler reads
-    from it, so the project on disk is always the current one. Changes to the
-    project's info are written at once.
+    The AI writes straight into the folder and the compiler reads from it, so the project
+    on disk is always the current one; the studio's Save only writes what's waiting (the
+    GUI's last change). Changes to the project's info are written at once. Save as copies
+    the whole folder into a new one, as a plugin of its own.
 */
 class Project final
 {
@@ -56,6 +57,11 @@ public:
     juce::Result open (const juce::File& projectFileOrFolder);
 
     void close();
+
+    /** Copies the whole project into a new folder beside it, <newName> (numbered if taken),
+        and goes on there as a plugin of its own: the new name, new ids (so a host shows it
+        beside the original). The original stays as it was. */
+    juce::Result saveAs (const juce::String& newName);
 
     bool isOpen() const noexcept                    { return opened; }
     const ProjectInfo& getInfo() const noexcept     { return info; }

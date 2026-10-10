@@ -15,6 +15,8 @@ namespace
         closeId  = 2,
         newId = 5,
         openId = 6,
+        saveId = 7,
+        saveAsId = 8,
         recentBaseId = 100
     };
 
@@ -189,7 +191,7 @@ void TopBar::Meter::paint (juce::Graphics& g)
 //==============================================================================
 TopBar::TopBar()
 {
-    optionsMenu.setTooltip ("New, open and recent projects");
+    optionsMenu.setTooltip ("New, open, save and recent projects");
     optionsMenu.onClick = [this] { showOptionsMenu(); };
 
     devicePill.onClick = [this] { if (onAudioSettings != nullptr) onAudioSettings(); };
@@ -224,6 +226,13 @@ void TopBar::setProjectName (const juce::String& name)
     hasProject = name.isNotEmpty();
 }
 
+void TopBar::showNotice (const juce::String& text)
+{
+    notice = text;
+    noticeUntil = juce::Time::getMillisecondCounter() + 2500;
+    repaint (noticeArea);
+}
+
 void TopBar::setCurrentTab (int index)
 {
     for (int i = 0; i < tabs.size(); ++i)
@@ -244,6 +253,12 @@ void TopBar::timerCallback()
 {
     meter.setLevels (takePeak != nullptr ? takePeak (0) : 0.0f, takePeak != nullptr ? takePeak (1) : 0.0f);
 
+    if (notice.isNotEmpty() && juce::Time::getMillisecondCounter() > noticeUntil)
+    {
+        notice.clear();
+        repaint (noticeArea);
+    }
+
     const auto load = juce::String (juce::roundToInt ((audioLoad != nullptr ? audioLoad() : 0.0) * 100.0)) + "%";
 
     if (load != loadText)
@@ -257,7 +272,8 @@ void TopBar::timerCallback()
 void TopBar::showOptionsMenu()
 {
     // A plain Windows-style menu: text items, separators, and a submenu for recent projects.
-    // Projects live on this computer and save themselves as they change.
+    // Projects live on this computer and save themselves as they change; Save writes what's
+    // waiting at once, Save as copies the plugin into a new folder.
     const auto recent = recentProjects != nullptr ? recentProjects() : juce::StringArray();
 
     juce::PopupMenu menu;
@@ -270,6 +286,19 @@ void TopBar::showOptionsMenu()
         recentMenu.addItem (recentBaseId + i, juce::File (recent[i]).getParentDirectory().getFileName());
 
     menu.addSubMenu ("Open recent", recentMenu, ! recent.isEmpty());
+    menu.addSeparator();
+
+    auto item = [this] (int id, const juce::String& text, const char* keys)
+    {
+        juce::PopupMenu::Item i (text);
+        i.itemID = id;
+        i.isEnabled = hasProject;
+        i.shortcutKeyDescription = keys;
+        return i;
+    };
+
+    menu.addItem (item (saveId, "Save", "Ctrl+S"));
+    menu.addItem (item (saveAsId, juce::String::fromUTF8 ("Save as\xe2\x80\xa6"), "Ctrl+Shift+S"));
     menu.addSeparator();
     menu.addItem (revealId, "Show project folder", hasProject);
     menu.addItem (closeId, "Close project", hasProject);
@@ -288,6 +317,10 @@ void TopBar::showOptionsMenu()
                                 safeThis->onNew();
                             else if (result == openId && safeThis->onOpen != nullptr)
                                 safeThis->onOpen();
+                            else if (result == saveId && safeThis->onSave != nullptr)
+                                safeThis->onSave();
+                            else if (result == saveAsId && safeThis->onSaveAs != nullptr)
+                                safeThis->onSaveAs();
                             else if (result == revealId && safeThis->onRevealProject != nullptr)
                                 safeThis->onRevealProject();
                             else if (result == closeId && safeThis->onCloseProject != nullptr)
@@ -318,6 +351,14 @@ void TopBar::paint (juce::Graphics& g)
         g.setFont (Theme::font (17.0f));
         g.setColour (Theme::muted);
         g.drawText ("AI STUDIO", area.withTrimmedLeft ((float) textWidth (bold, "STELLA") + 6.0f), juce::Justification::centredLeft, false);
+    }
+
+    // A notice ("Saved"), for a moment.
+    if (notice.isNotEmpty() && noticeArea.getWidth() > 30)
+    {
+        g.setColour (Theme::safe);
+        g.setFont (Theme::font (13.5f, true));
+        g.drawFittedText (notice, noticeArea, juce::Justification::centredLeft, 1, 0.8f);
     }
 
     // The audio load, beside the meter.
@@ -399,6 +440,8 @@ void TopBar::resized()
     auto x = juce::jlimit (earliest, latest, (getWidth() - tabsWidth) / 2);
 
     devicePill.setBounds (area.removeFromLeft (devicePill.getWidthFor (juce::jmin (maxPillWidth, x - 24 - area.getX()))).reduced (0, 1));
+
+    noticeArea = juce::Rectangle<int>::leftTopRightBottom (devicePill.getRight() + 14, 0, x - 12, getHeight());
 
     for (int i = 0; i < tabs.size(); ++i)
     {

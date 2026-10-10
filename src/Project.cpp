@@ -180,6 +180,53 @@ juce::Result Project::open (const juce::File& projectFileOrFolder)
     return juce::Result::ok();
 }
 
+juce::Result Project::saveAs (const juce::String& newName)
+{
+    if (! opened)
+        return juce::Result::fail ("No project is open.");
+
+    const auto name = newName.trim();
+
+    if (name.isEmpty())
+        return juce::Result::fail ("The copy needs a name.");
+
+    const auto parent = folder.getParentDirectory();
+    const auto legalName = juce::File::createLegalFileName (name).trim();
+    auto newFolder = parent.getChildFile (legalName.isNotEmpty() ? legalName : juce::String ("Plugin"));
+
+    if (newFolder.exists())
+        newFolder = parent.getNonexistentChildFile (newFolder.getFileName(), {}, true);
+
+    if (! folder.copyDirectoryTo (newFolder))
+    {
+        newFolder.deleteRecursively();
+        return juce::Result::fail ("Couldn't copy the plugin to " + newFolder.getFullPathName());
+    }
+
+    const auto previousFolder = folder;
+    const auto previousInfo = info;
+
+    folder = newFolder;
+    info.name = name;
+    info.pluginId = makePluginId (info.vendor, name);
+    info.uuid = juce::Uuid().toDashedString();
+    info.created = juce::Time::getCurrentTime().toISO8601 (true);
+
+    if (info.pluginId == previousInfo.pluginId)   // a name that reads the same in an id
+        info.pluginId << "copy";
+
+    if (const auto result = write(); result.failed())
+    {
+        newFolder.deleteRecursively();
+        folder = previousFolder;
+        info = previousInfo;
+        return result;
+    }
+
+    notify();
+    return juce::Result::ok();
+}
+
 void Project::close()
 {
     if (! opened)

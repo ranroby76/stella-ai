@@ -41,6 +41,8 @@ public:
     void newProject();
     void openProject();
     void openProjectFile (const juce::File& file);
+    void saveProject();     // what's waiting is written now
+    void saveProjectAs();   // a copy in a new folder, under a new name, and work goes on there
 
 private:
     void projectChanged();
@@ -97,7 +99,7 @@ private:
 
     std::unique_ptr<juce::DocumentWindow> audioSettingsWindow, logWindow;
     std::unique_ptr<juce::FileChooser> chooser;
-    std::unique_ptr<juce::AlertWindow> newProjectDialog, signOutDialog, autoLayoutDialog, presetDialog;
+    std::unique_ptr<juce::AlertWindow> newProjectDialog, signOutDialog, autoLayoutDialog, presetDialog, saveAsDialog;
 
     History history;
     PresetBank presets;
