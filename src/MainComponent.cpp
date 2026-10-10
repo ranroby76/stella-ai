@@ -109,7 +109,7 @@ MainComponent::MainComponent (Settings& s)
     workspace.onModeChanged = [this] (bool play) { setPlayMode (play); };
     topBar.onOpenRecent = [this] (const juce::File& file) { openProjectFile (file); };
     topBar.onRevealProject = [this] { if (project.isOpen()) project.getProjectFile().revealToUser(); };
-    topBar.onCloseProject = [this] { project.close(); };
+    topBar.onCloseProject = [this] { flushLayoutSave(); project.close(); };
 
     topBar.recentProjects = [this] { return settings.getRecentProjects(); };
 
@@ -153,6 +153,7 @@ MainComponent::MainComponent (Settings& s)
         info.vendor = settings.getVendor().isNotEmpty() ? settings.getVendor() : juce::String ("Fanan");
         info.kind = kind;
 
+        flushLayoutSave();   // the open project's last GUI change, before it goes
         const auto created = project.create (settings.getProjectsFolder(), info);
 
         if (created.wasOk())
@@ -251,6 +252,8 @@ MainComponent::MainComponent (Settings& s)
 
 MainComponent::~MainComponent()
 {
+    flushLayoutSave();   // a GUI change made just before quitting isn't lost
+
     project.onChanged = nullptr;
     engine.onDeviceChanged = nullptr;
     preview.onChanged = nullptr;
@@ -1119,6 +1122,7 @@ void MainComponent::newProject()
                 if (auto* combo = dialog.getComboBoxComponent ("kind"))
                     info.kind = kinds[juce::jlimit (0, 2, combo->getSelectedItemIndex())];
 
+                safeThis->flushLayoutSave();
                 const auto created = safeThis->project.create (safeThis->settings.getProjectsFolder(), info);
 
                 if (created.failed())
@@ -1169,6 +1173,7 @@ void MainComponent::openProject()
 
 void MainComponent::openProjectFile (const juce::File& file)
 {
+    flushLayoutSave();   // the open project's last GUI change, before another one opens
     const auto result = project.open (file);
 
     if (result.failed())
