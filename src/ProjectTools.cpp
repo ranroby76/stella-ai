@@ -273,6 +273,22 @@ juce::var ProjectTools::getDefinitions (bool builder) const
     }
 
     {
+        // Handled by the conversation itself (StellaAi): a checklist the user watches.
+        auto props = object();
+        props.getDynamicObject()->setProperty ("steps", listProperty ("string", "The steps in order, a few plain words each in the user's language (no file or code names), "
+                                                                                 "e.g. [\"New filter types\", \"Filter sound\", \"Try it out\", \"Panel with drop-down lists\"]. "
+                                                                                 "Giving steps starts a new plan."));
+        props.getDynamicObject()->setProperty ("current", property ("integer", "The step starting now, counting from 1."));
+        props.getDynamicObject()->setProperty ("done", property ("boolean", "true when the last step is finished."));
+        tools.add (tool ("plan",
+                         "Shows the user your steps for this request as a checklist that ticks along. For any request that takes more "
+                         "than one step, call it first with all the steps (small ones: one file per step, then build, then the panel) "
+                         "and current 1; then with current as each next step starts (in the same answer as that step's own tool calls); "
+                         "then with done: true. The project's description shows an unfinished plan: carry on from it.",
+                         props, {}));
+    }
+
+    {
         // In both lists: a conversation hands over with it, and the builder must still
         // recognise that step in the request it takes over.
         auto props = object();

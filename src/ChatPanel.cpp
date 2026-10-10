@@ -703,6 +703,27 @@ void ChatPanel::rebuildTranscript (const std::vector<StellaAi::Entry>& entries)
                 transcript.setColour (juce::TextEditor::textColourId, Theme::muted);
                 transcript.insertTextAtCaret (juce::String::fromUTF8 ("\xe2\x80\xba ") + entry.text + "\n\n");
                 break;
+
+            case StellaAi::Entry::Kind::plan:
+            {
+                // The steps as a checklist: done ones ticked, the one under way bright.
+                const auto lines = juce::StringArray::fromLines (entry.text);
+
+                for (int i = 0; i < lines.size(); ++i)
+                {
+                    const auto& line = lines[i];
+                    const bool done = line.startsWith (juce::String::fromUTF8 ("\xe2\x9c\x93"));
+                    const bool now = line.startsWith (juce::String::fromUTF8 ("\xe2\x96\xb8"));
+
+                    if (i == 0)
+                        add ("Plan: " + line + "\n", Theme::text, true);
+                    else
+                        add ("   " + line + "\n", done ? Theme::safe : now ? Theme::text : Theme::muted, now);
+                }
+
+                add ("\n", Theme::text, false);
+                break;
+            }
         }
     }
 

@@ -90,6 +90,7 @@ void StellaAi::clear()
 
     entries.clear();
     messages.clear();
+    clearPlan();
     notify();
 }
 
@@ -105,6 +106,13 @@ void StellaAi::stop()
 
 void StellaAi::finish()
 {
+    // The last step finished and Stella AI answered: the plan is done.
+    if (! planSteps.isEmpty() && ! planDone && lastStop == "done" && planCurrent >= planSteps.size())
+    {
+        planDone = true;
+        showPlan();
+    }
+
     busy = false;
     pendingCalls.clear();
     toolResults.clear();
@@ -270,6 +278,9 @@ void StellaAi::send (const juce::String& text, const juce::Array<juce::File>& fi
 
     currentRequest = shownText.trim().isNotEmpty() ? shownText.trim() : request;
 
+    if (planDone)
+        clearPlan();   // a finished plan isn't told again; an unfinished one is, so "continue" carries on
+
     if (onTurnStarted != nullptr)
         onTurnStarted (currentRequest);
 
@@ -287,6 +298,7 @@ void StellaAi::send (const juce::String& text, const juce::Array<juce::File>& fi
     }
 
     mode = "chat";
+    lastStop.clear();
     roundsLeft = maxRounds;
     stopRequested = false;
     busy = true;
@@ -302,7 +314,7 @@ void StellaAi::sendRound()
 
     body->setProperty ("mode", mode);
     body->setProperty ("guide", ProjectTools::getGuide());
-    body->setProperty ("context", tools.describeProject());
+    body->setProperty ("context", tools.describeProject() + planContext());
     body->setProperty ("messages", compacted());
     body->setProperty ("tools", tools.getDefinitions (mode == "build"));
     body->setProperty ("request_id", juce::Uuid().toString());
@@ -329,6 +341,7 @@ void StellaAi::onAnswer (const juce::Result& result, const juce::var& answer)
     const auto content = answer.getProperty ("content", {});
     const auto reply = answer.getProperty ("reply", {}).toString().trim();
     const auto stopReason = answer.getProperty ("stop", {}).toString();
+    lastStop = stopReason;
 
     messages.add (makeMessage ("assistant", content.isArray() && content.getArray()->size() > 0 ? content
                                                                                                 : juce::var (reply.isNotEmpty() ? reply : juce::String ("(no reply)"))));
@@ -396,6 +409,15 @@ void StellaAi::runNextTool()
     const auto id = call.getProperty ("id", {}).toString();
     const auto input = call.getProperty ("input", {});
 
+    if (name == "plan")
+    {
+        const auto result = runPlan (input);
+        toolResults.add (makeToolResult (id, result, result.startsWith ("Not ")));
+        notify();
+        runNextTool();
+        return;
+    }
+
     if (name == "start_building")
     {
         // From here on, this request goes to the builder.
@@ -438,6 +460,110 @@ void StellaAi::runNextTool()
 
         runNextTool();
     });
+}
+
+//==============================================================================
+juce::String StellaAi::runPlan (const juce::var& input)
+{
+    // New steps: a new plan, with its own checklist in the conversation.
+    if (const auto* list = input.getProperty ("steps", {}).getArray(); list != nullptr && ! list->isEmpty())
+    {
+        juce::StringArray steps;
+
+        for (const auto& step : *list)
+            if (const auto text = step.toString().replaceCharacters ("\r\n", "  ").trim(); text.isNotEmpty())
+                steps.add (text.substring (0, 80));
+
+        if (steps.isEmpty())
+            return "Not done: the steps were empty.";
+
+        if (steps.size() > maxPlanSteps)
+            return "Not done: at most " + juce::String (maxPlanSteps) + " steps. Group small things into one step.";
+
+        planSteps = steps;
+        planCurrent = 0;
+        planDone = false;
+        planRequest = currentRequest;
+        entries.push_back ({ Entry::Kind::plan, {} });
+        planEntry = entries.size() - 1;
+    }
+    else if (planSteps.isEmpty())
+    {
+        return "Not done: there's no plan yet. Give its steps first.";
+    }
+
+    if (input.hasProperty ("current"))
+    {
+        const auto current = juce::jlimit (0, planSteps.size(), (int) input.getProperty ("current", 0));
+
+        if (current != planCurrent && current > 0)
+            addEntry (Entry::Kind::activity, "Step " + juce::String (current) + " of " + juce::String (planSteps.size()) + ": " + planSteps[current - 1]);
+
+        planCurrent = current;
+    }
+
+    if ((bool) input.getProperty ("done", false))
+    {
+        planDone = true;
+        planCurrent = planSteps.size();
+    }
+
+    showPlan();
+
+    if (planDone)
+        return "Plan done: all " + juce::String (planSteps.size()) + " steps.";
+
+    return "The user sees the plan" + (planCurrent > 0 ? ", now at step " + juce::String (planCurrent) + " of " + juce::String (planSteps.size())
+                                                        : juce::String (" (" + juce::String (planSteps.size()) + " steps)"))
+         + ". Do the steps one at a time, calling plan with current as each starts and done: true after the last.";
+}
+
+juce::String StellaAi::planText() const
+{
+    juce::StringArray lines;
+    lines.add (juce::String (planSteps.size()) + (planSteps.size() == 1 ? " step" : " steps") + (planDone ? juce::String (", all done") : juce::String()));
+
+    for (int i = 0; i < planSteps.size(); ++i)
+    {
+        const auto number = i + 1;
+        const auto mark = planDone || number < planCurrent ? juce::String::fromUTF8 ("\xe2\x9c\x93 ")    // ✓
+                        : number == planCurrent           ? juce::String::fromUTF8 ("\xe2\x96\xb8 ")    // ▸
+                                                          : juce::String::fromUTF8 ("\xe2\x97\x8b ");   // ○
+        lines.add (mark + planSteps[i]);
+    }
+
+    return lines.joinIntoString ("\n");
+}
+
+juce::String StellaAi::planContext() const
+{
+    if (planSteps.isEmpty() || planDone)
+        return {};
+
+    juce::String text;
+    text << "\nYour plan for the request \"" << planRequest.substring (0, 200) << "\" (the user sees it as a checklist):\n";
+
+    for (int i = 0; i < planSteps.size(); ++i)
+        text << (i + 1) << ". " << planSteps[i]
+             << (i + 1 < planCurrent ? " (done)" : i + 1 == planCurrent ? " (under way)" : "") << "\n";
+
+    text << "Carry on from the step under way (or the first one not done), one step at a time, unless the user now asks for "
+            "something else: then make a new plan.\n";
+    return text;
+}
+
+void StellaAi::showPlan()
+{
+    if (planEntry < entries.size() && entries[planEntry].kind == Entry::Kind::plan)
+        entries[planEntry].text = planText();
+}
+
+void StellaAi::clearPlan()
+{
+    planSteps.clear();
+    planCurrent = 0;
+    planDone = false;
+    planRequest.clear();
 }
 
 //==============================================================================

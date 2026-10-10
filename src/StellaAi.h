@@ -27,7 +27,7 @@ class StellaAi final
 public:
     struct Entry
     {
-        enum class Kind { user, ai, notice, activity };
+        enum class Kind { user, ai, notice, activity, plan };   // plan: the steps as a checklist (see planText)
 
         Kind kind = Kind::notice;
         juce::String text;
@@ -59,6 +59,7 @@ public:
     std::function<void (const juce::String& request)> onTurnStarted, onTurnFinished;
 
     static constexpr int maxRounds = 40;    // steps for one request
+    static constexpr int maxPlanSteps = 12;
     static constexpr int maxHistory = 80;   // messages kept in the conversation
 
 private:
@@ -72,6 +73,14 @@ private:
     void addEntry (Entry::Kind kind, const juce::String& text);
     void notify();
 
+    // The plan: Stella AI's steps for a request, shown as a checklist that ticks along, and
+    // told back to it with every step, so after a cut-off or a "continue" it carries on.
+    juce::String runPlan (const juce::var& input);
+    juce::String planText() const;      // the checklist entry: "✓ done", "▸ now", "○ to do" lines
+    juce::String planContext() const;   // for the project's description while a plan is unfinished
+    void showPlan();
+    void clearPlan();
+
     FananServer& server;
     ProjectTools& tools;
 
@@ -81,9 +90,16 @@ private:
     int roundsLeft = 0, turnStart = 0;
     bool busy = false, stopRequested = false;
     bool layoutChangedThisStep = false;   // set_layout or edit_layout ran among this answer's calls
+    juce::String lastStop;                // how the last answer ended: "tools", "done", "cut"...
 
     juce::Array<juce::var> pendingCalls, toolResults;   // the current answer's tool calls
     juce::String currentRequest;
+
+    juce::StringArray planSteps;
+    int planCurrent = 0;                 // 1-based: the step under way (0: not started)
+    bool planDone = false;
+    size_t planEntry = 0;                // its checklist in entries
+    juce::String planRequest;            // the request it was made for
 
     std::shared_ptr<bool> alive = std::make_shared<bool> (true);
 
