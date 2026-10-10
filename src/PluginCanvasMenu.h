@@ -1,10 +1,11 @@
 // C:\workspace\Stella AI Studio\src\PluginCanvasMenu.h
-// The canvas's edit menu and Stella AI banner. Only the PluginCanvas files include this.
+// The canvas's edit menu, Stella AI banner and programmed elements' bridge. Only the PluginCanvas files include this.
 
 #pragma once
 
 #include "ColourSwatch.h"
 #include "PluginCanvas.h"
+#include "stella_element_host.h"
 
 //==============================================================================
 /**
@@ -126,4 +127,37 @@ private:
     juce::TextButton chatButton { "Open chat" }, closeButton;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AiBanner)
+};
+
+//==============================================================================
+/**
+    What the programmed elements ask of the canvas (stella_element_host.h): their
+    parameters' values and ranges, their options and settings from the layout, levels to
+    show, notes to play. element is the widget's index in the layout.
+*/
+class PluginCanvas::ElementBridge final : public stella::ui::ElementHost
+{
+public:
+    explicit ElementBridge (PluginCanvas& owner) : canvas (owner) {}
+
+    bool paramInfo (int element, int slot, int info, float& result) override;
+    int findSlot (int element, const std::string& role) override;
+    void setValue (int element, int slot, float newValue) override;
+    void gesture (int element, int slot, bool starts) override;
+    bool text (int element, int which, int index, const std::string& key, std::string& result) override;
+    int numOptions (int element) override;
+    std::uint32_t colour (int element) override;
+    float level (int element, bool rms) override;
+    void readScope (int element, float* destination, int numSamples) override;
+    void playNote (int element, int note, float velocity) override;
+    bool isNoteDown (int note) override;
+    double seconds() override;
+
+private:
+    const GuiWidget* widget (int element) const;
+    const PluginCanvas::Param* paramAt (int element, int slot) const;
+
+    PluginCanvas& canvas;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ElementBridge)
 };

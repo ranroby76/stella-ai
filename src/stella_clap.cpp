@@ -536,7 +536,7 @@ namespace
             LiveSource source;
             std::int32_t node = 0, port = 0;
 
-            if ((w.kind == stella::gui::Kind::meter || w.kind == stella::gui::Kind::lamp) && w.source != nullptr)
+            if ((w.kind == stella::gui::Kind::meter || w.kind == stella::gui::Kind::lamp || w.kind == stella::gui::Kind::custom) && w.source != nullptr)
             {
                 if (w.isDisplay)
                 {
@@ -548,8 +548,10 @@ namespace
                     source.tap = p->numTaps++;
                 }
             }
-            else if (w.kind == stella::gui::Kind::scope && w.source != nullptr && p->numScopes < stella::maxScopes
-                     && p->runtime.findSignal (w.source, node, port))
+
+            // A programmed element may read both: its level and its samples.
+            if ((w.kind == stella::gui::Kind::scope || (w.kind == stella::gui::Kind::custom && ! w.isDisplay)) && w.source != nullptr && p->numScopes < stella::maxScopes
+                && p->runtime.findSignal (w.source, node, port))
             {
                 shared.scopeNode[p->numScopes] = node;
                 shared.scopePort[p->numScopes] = port;

@@ -7,6 +7,8 @@
 #include <string>
 #include <vector>
 
+struct wasm_engine_t;
+
 //==============================================================================
 /**
     One plugin being built, running live in a sandbox (WebAssembly, run by Wasmtime).
@@ -79,6 +81,10 @@ public:
 
     int getMaxFrames() const noexcept;
     double getSampleRate() const noexcept;
+
+    /** The studio's one Wasmtime engine, with the clock that stops a stuck call (each call
+        gets a deadline in its ticks, 10 ms apart): the GUI's programmed elements use it too. */
+    static wasm_engine_t* engine();
 
 private:
     WasmPlugin();

@@ -675,7 +675,24 @@ void PluginCanvas::mouseDown (const juce::MouseEvent& e)
         return;
     }
 
-    // Play mode: the controls work; elsewhere a drag moves the view.
+    // Play mode. A programmed element's open popup takes the click; a click anywhere else
+    // closes it, and goes no further.
+    if (const auto owner = popupAt (plugin); owner >= 0)
+    {
+        active = owner;
+        drag = Drag::control;
+        pressedPopup = true;
+        elementMouse (owner, true, 0, plugin, e.mods, e.getNumberOfClicks() > 1);
+        return;
+    }
+
+    if (anyPopupOpen())
+    {
+        closeElementPopups();
+        return;
+    }
+
+    // The controls work; elsewhere a drag moves the view.
     active = insidePanel ? widgetAt (plugin, true) : -1;
 
     if (active < 0)
@@ -686,6 +703,20 @@ void PluginCanvas::mouseDown (const juce::MouseEvent& e)
 
     drag = Drag::control;
     const auto& w = layout.widgets[(size_t) active];
+
+    if (w.type == GuiWidget::Type::custom)
+    {
+        // It takes the drag and the release only if it asks for them.
+        pressedPopup = false;
+
+        if (! elementMouse (active, false, 0, plugin, e.mods, e.getNumberOfClicks() > 1))
+        {
+            active = -1;
+            drag = Drag::none;
+        }
+
+        return;
+    }
 
     if (w.type == GuiWidget::Type::keyboard)
     {
@@ -914,6 +945,12 @@ void PluginCanvas::mouseDrag (const juce::MouseEvent& e)
 
             const auto& w = layout.widgets[(size_t) active];
 
+            if (w.type == GuiWidget::Type::custom)
+            {
+                elementMouse (active, pressedPopup, 1, toPlugin (e.position), e.mods);
+                return;
+            }
+
             // Sliding across the keys plays each in turn; off the keyboard, nothing plays.
             if (w.type == GuiWidget::Type::keyboard)
             {
@@ -953,10 +990,18 @@ void PluginCanvas::mouseDrag (const juce::MouseEvent& e)
     }
 }
 
-void PluginCanvas::mouseUp (const juce::MouseEvent&)
+void PluginCanvas::mouseUp (const juce::MouseEvent& e)
 {
     const auto was = drag;
     drag = Drag::none;
+
+    if (was == Drag::control && juce::isPositiveAndBelow (active, (int) layout.widgets.size())
+        && layout.widgets[(size_t) active].type == GuiWidget::Type::custom)
+    {
+        elementMouse (active, pressedPopup, 2, toPlugin (e.position), e.mods);
+        pressedPopup = false;
+    }
+
     releaseKey();
     setMouseCursor (juce::MouseCursor::NormalCursor);
 
@@ -1040,14 +1085,26 @@ void PluginCanvas::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseW
         return;
     }
 
-    // Play mode: the wheel turns the control under the mouse.
+    // Play mode: the wheel turns the control under the mouse (a popup first).
     if (! design)
     {
+        if (const auto owner = popupAt (toPlugin (e.position)); owner >= 0)
+        {
+            elementMouse (owner, true, 5, toPlugin (e.position), e.mods, false, wheel.deltaY * 4.0f);
+            return;
+        }
+
         const auto index = panelArea().contains (e.position) ? widgetAt (toPlugin (e.position), true) : -1;
 
         if (index >= 0)
         {
             const auto& w = layout.widgets[(size_t) index];
+
+            if (w.type == GuiWidget::Type::custom)
+            {
+                elementMouse (index, false, 5, toPlugin (e.position), e.mods, false, wheel.deltaY * 4.0f);
+                return;
+            }
 
             if (const auto* p = paramFor (w); p != nullptr && (w.type == GuiWidget::Type::knob || w.type == GuiWidget::Type::slider))
             {
@@ -1074,6 +1131,9 @@ void PluginCanvas::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseW
 
 void PluginCanvas::mouseMove (const juce::MouseEvent& e)
 {
+    if (hasPanel())
+        hoverElements (toPlugin (e.position), e.mods);
+
     const auto index = hasPanel() && panelArea().contains (e.position) ? widgetAt (toPlugin (e.position), ! design) : -1;
 
     if (index != hovered)
@@ -1101,8 +1161,12 @@ void PluginCanvas::mouseMove (const juce::MouseEvent& e)
     setMouseCursor (onPanelHandle ? juce::MouseCursor::BottomRightCornerResizeCursor : juce::MouseCursor::NormalCursor);
 }
 
-void PluginCanvas::mouseExit (const juce::MouseEvent&)
+void PluginCanvas::mouseExit (const juce::MouseEvent& e)
 {
+    if (hoveredElement >= 0)
+        elementMouse (hoveredElement, hoveredPopup, 4, toPlugin (e.position), e.mods);
+
+    hoveredElement = -1;
     hovered = -1;
     repaint();
 }

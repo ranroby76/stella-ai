@@ -313,16 +313,17 @@ void PluginCanvas::ElementMenu::showFor (int widgetIndex)
     {
         const auto& w = canvas.layout.widgets[(size_t) widget];
         const auto t = w.type;
-        title = PluginCanvas::typeDisplayName (t);
-        subtitle = t == GuiWidget::Type::image ? w.image : w.label;
+        const bool custom = t == GuiWidget::Type::custom;
+        title = custom ? w.element : PluginCanvas::typeDisplayName (t);
+        subtitle = custom ? PluginCanvas::typeDisplayName (t) : (t == GuiWidget::Type::image ? w.image : w.label);
 
         for (int i = 0; i < numTypes; ++i)
             if (typeOrder[i] == t)
                 type.setSelectedId (i + 1, juce::dontSendNotification);
 
-        setShown (type, true);
+        setShown (type, ! custom);   // a programmed element stays what it is
 
-        if (w.isControl())
+        if (w.isControl() || custom)
         {
             fillParams (param, w.param, true);
             setShown (param, true);
@@ -412,7 +413,7 @@ void PluginCanvas::ElementMenu::showFor (int widgetIndex)
         }
 
         options.setText (w.options.joinIntoString (", "), juce::dontSendNotification);
-        setShown (options, t == GuiWidget::Type::selector);
+        setShown (options, t == GuiWidget::Type::selector || custom);
 
         if (t == GuiWidget::Type::keyboard)
         {
@@ -520,7 +521,7 @@ void PluginCanvas::ElementMenu::apply()
         return;
 
     auto& w = canvas.layout.widgets[(size_t) widget];
-    const auto newType = typeOrder[juce::jlimit (0, numTypes - 1, type.getSelectedId() - 1)];
+    const auto newType = w.type == GuiWidget::Type::custom ? w.type : typeOrder[juce::jlimit (0, numTypes - 1, type.getSelectedId() - 1)];
 
     if (newType != w.type)
     {
@@ -548,7 +549,7 @@ void PluginCanvas::ElementMenu::apply()
         return juce::isPositiveAndBelow (index, canvas.params.size()) ? canvas.params[index].id : juce::String();
     };
 
-    if (w.isControl())
+    if (w.isControl() || w.type == GuiWidget::Type::custom)
         w.param = paramAt (param);
 
     if (w.isLive())
@@ -587,7 +588,7 @@ void PluginCanvas::ElementMenu::apply()
     if (Looks::takesLook (w) && juce::isPositiveAndBelow (style.getSelectedId() - 1, lookNames.size()))
         w.style = lookNames[style.getSelectedId() - 1];
 
-    if (w.type == GuiWidget::Type::selector)
+    if (w.type == GuiWidget::Type::selector || w.type == GuiWidget::Type::custom)
     {
         w.options = juce::StringArray::fromTokens (options.getText(), ",", "");
         w.options.trim();

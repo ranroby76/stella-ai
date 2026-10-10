@@ -54,12 +54,16 @@ public:
 
         juce::String presetArrays, presetRows;   // the presets, as C++
         int numPresets = 0;
+
+        juce::String customArrays, customRows;   // programmed elements: what each one's widget tells it, as C++
+        int numCustom = 0;
+        juce::StringArray elementTypes;          // the programmed elements the window uses
     };
 
     /** On the message thread: encodes the canvas's bake and describes each widget. */
     static Gui prepareGui (const GuiLayout& layout, const PluginCanvas::Bake& bake,
-                           const std::map<juce::String, juce::String>& unitsById, const juce::StringArray& displayIds,
-                           const std::vector<Preset>& presets);
+                           const std::map<juce::String, juce::String>& unitsById, const std::map<juce::String, juce::String>& namesById,
+                           const juce::StringArray& displayIds, const std::vector<Preset>& presets);
 
     /** Builds the CLAP and VST3 plugins and the standalone app (side by side). Takes a few
         seconds: call it on a worker thread. */

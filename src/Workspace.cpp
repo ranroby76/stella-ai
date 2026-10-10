@@ -312,6 +312,7 @@ Workspace::Workspace()
     pluginView.onDeletePreset = [this] (int i) { if (onDeletePreset != nullptr) onDeletePreset (i); };
     pluginView.onAbChosen     = [this] (int slot) { if (onAbChosen != nullptr) onAbChosen (slot); };
     pluginView.canvas.onPresetChosen = [this] (int i) { if (onPresetChosen != nullptr) onPresetChosen (i); };
+    pluginView.canvas.onElementsFailed = [this] (const juce::String& why) { if (onElementsFailed != nullptr) onElementsFailed (why); };
     pluginView.onAutoLayout = [this] { if (onAutoLayoutRequested != nullptr) onAutoLayoutRequested(); };
     pluginView.onMode       = [this] (bool play) { if (onModeChanged != nullptr) onModeChanged (play); };
 

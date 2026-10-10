@@ -10,11 +10,12 @@
 //==============================================================================
 /** One element of the plugin's GUI. Controls are bound to a parameter by its id; meters,
     lamps and scopes watch a source (a signal or a module's display); pictures show a file
-    from the project's gui/images folder; a keyboard plays notes into the plugin. */
+    from the project's gui/images folder; a keyboard plays notes into the plugin. A custom
+    element is one Stella AI programmed (elements/<Name>.cpp): it draws itself. */
 struct GuiWidget
 {
     enum class Type { knob, slider, toggle, selector, label, group,
-                      meter, scope, lamp, envelope, filter, xy, shape, preset, image, keyboard };
+                      meter, scope, lamp, envelope, filter, xy, shape, preset, image, keyboard, custom };
 
     Type type = Type::knob;
     juce::Rectangle<int> bounds;   // in the plugin window's pixels; controls include their caption
@@ -39,6 +40,8 @@ struct GuiWidget
     float strokeWidth = 0.0f;
     int lowNote = 48, highNote = 84;   // keyboards: the lowest and highest key (MIDI notes; C3 to C6),
                                        // white keys both (see stella::keys::normalise)
+    juce::String element;          // custom: the programmed element's name (STELLA_ELEMENT)
+    std::map<juce::String, juce::var> settings;   // custom: anything else it reads ("settings" in the layout)
 
     bool isControl() const noexcept
     {
@@ -46,6 +49,18 @@ struct GuiWidget
     }
 
     bool isLive() const noexcept   { return type == Type::meter || type == Type::scope || type == Type::lamp; }
+
+    /** A setting as text: a number or word as it is, a list or object as JSON. */
+    juce::String settingText (const juce::String& key) const
+    {
+        const auto found = settings.find (key);
+
+        if (found == settings.end())
+            return {};
+
+        const auto& v = found->second;
+        return v.isArray() || v.isObject() ? juce::JSON::toString (v, true) : v.toString();
+    }
 
     /** The roles a type's parameters play, for the ones bound by role. */
     static juce::StringArray rolesOf (Type t)
@@ -120,6 +135,9 @@ public:
     static GuiLayout makeDefault (const juce::Array<ParamInfo>& params, const juce::String& title);
 
     static juce::String typeName (GuiWidget::Type type);
+
+    /** A type by name; a name that isn't a toolbox type is a custom element ("custom", or
+        the programmed element's own name). An empty name is a knob. */
     static GuiWidget::Type typeFromName (const juce::String& name);
 
     /** Keyboards: a MIDI note's name ("C4" is middle C, 60), and a note from JSON: a name

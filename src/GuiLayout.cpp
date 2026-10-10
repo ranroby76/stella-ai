@@ -61,6 +61,7 @@ juce::String GuiLayout::typeName (GuiWidget::Type type)
         case GuiWidget::Type::preset:    return "preset";
         case GuiWidget::Type::image:     return "image";
         case GuiWidget::Type::keyboard:  return "keyboard";
+        case GuiWidget::Type::custom:    return "custom";
     }
 
     return "knob";
@@ -86,7 +87,10 @@ GuiWidget::Type GuiLayout::typeFromName (const juce::String& name)
     if (n == "image" || n == "picture" || n == "bitmap" || n == "photo") return GuiWidget::Type::image;
     if (n == "keyboard" || n == "keys" || n == "piano" || n == "pianokeyboard" || n == "virtualkeyboard" || n == "midikeyboard")
         return GuiWidget::Type::keyboard;
-    return GuiWidget::Type::knob;
+    if (n.isEmpty() || n == "knob" || n == "rotary" || n == "dial")   return GuiWidget::Type::knob;
+
+    // Anything else is a programmed element: "custom" with its "element", or its own name.
+    return GuiWidget::Type::custom;
 }
 
 juce::String GuiLayout::noteName (int note)
@@ -224,8 +228,22 @@ juce::var GuiLayout::toVar() const
 GuiWidget GuiLayout::widgetFromVar (const juce::var& item)
 {
     GuiWidget w;
-    w.type = typeFromName (item.getProperty ("type", {}).toString());
+    const auto typeText = item.getProperty ("type", {}).toString().trim();
+    w.type = typeFromName (typeText);
     w.param = item.getProperty ("param", {}).toString().trim();
+
+    if (w.type == GuiWidget::Type::custom)
+    {
+        // { "type": "custom", "element": "DropDown" }, or { "type": "DropDown" }.
+        w.element = item.getProperty ("element", {}).toString().trim();
+
+        if (w.element.isEmpty() && ! typeText.equalsIgnoreCase ("custom") && ! typeText.equalsIgnoreCase ("element"))
+            w.element = typeText;
+
+        if (auto* settings = item.getProperty ("settings", {}).getDynamicObject())
+            for (const auto& setting : settings->getProperties())
+                w.settings[setting.name.toString()] = setting.value;
+    }
     w.label = item.getProperty (w.type == GuiWidget::Type::label || w.type == GuiWidget::Type::group ? "text" : "label", {}).toString();
 
     if (w.label.isEmpty())
@@ -277,10 +295,11 @@ GuiWidget GuiLayout::widgetFromVar (const juce::var& item)
         const auto t = w.type;
         const auto defaultW = t == GuiWidget::Type::slider ? 32 : t == GuiWidget::Type::toggle ? 48 : t == GuiWidget::Type::meter ? 18
                             : t == GuiWidget::Type::lamp ? 30 : t == GuiWidget::Type::xy ? 160 : t == GuiWidget::Type::label ? 160
-                            : t == GuiWidget::Type::image ? 160 : t == GuiWidget::Type::keyboard ? 600 : 200;
+                            : t == GuiWidget::Type::image ? 160 : t == GuiWidget::Type::keyboard ? 600 : t == GuiWidget::Type::custom ? 160 : 200;
         const auto defaultH = t == GuiWidget::Type::slider ? 140 : t == GuiWidget::Type::toggle ? 48 : t == GuiWidget::Type::meter ? 140
                             : t == GuiWidget::Type::lamp ? 44 : t == GuiWidget::Type::xy ? 180 : t == GuiWidget::Type::label ? 28
-                            : t == GuiWidget::Type::preset ? 28 : t == GuiWidget::Type::group ? 160 : t == GuiWidget::Type::keyboard ? 90 : 120;
+                            : t == GuiWidget::Type::preset ? 28 : t == GuiWidget::Type::group ? 160 : t == GuiWidget::Type::keyboard ? 90
+                            : t == GuiWidget::Type::custom ? 32 : 120;
         w.bounds = { x, y, juce::jlimit (8, maxWidth, intOf (item, "w", defaultW)), juce::jlimit (8, maxHeight, intOf (item, "h", defaultH)) };
     }
 
@@ -291,6 +310,10 @@ juce::var GuiLayout::widgetToVar (const GuiWidget& w)
 {
     auto item = object();
     set (item, "type", typeName (w.type));
+
+    if (w.type == GuiWidget::Type::custom)
+        set (item, "element", w.element);
+
     set (item, "x", w.bounds.getX());
     set (item, "y", w.bounds.getY());
 
@@ -325,7 +348,7 @@ juce::var GuiLayout::widgetToVar (const GuiWidget& w)
     if (w.type == GuiWidget::Type::slider && ! w.vertical)
         set (item, "orientation", "horizontal");
 
-    if (w.type == GuiWidget::Type::selector)
+    if (w.type == GuiWidget::Type::selector || (w.type == GuiWidget::Type::custom && ! w.options.isEmpty()))
     {
         juce::Array<juce::var> options;
 
@@ -357,6 +380,16 @@ juce::var GuiLayout::widgetToVar (const GuiWidget& w)
             set (roles, role, id);
 
         set (item, "params", roles);
+    }
+
+    if (! w.settings.empty())
+    {
+        auto settings = object();
+
+        for (const auto& [key, value] : w.settings)
+            set (settings, key, value);
+
+        set (item, "settings", settings);
     }
 
     return item;

@@ -43,6 +43,46 @@ namespace
         return text.isNotEmpty() ? literal (text) : juce::String ("nullptr");
     }
 
+    /** Any text as a C++ string literal, all of it: bytes outside plain ASCII as octal escapes
+        of its UTF-8, so a label in any language reaches the plugin as it is. */
+    juce::String textLiteral (const juce::String& text)
+    {
+        juce::String result ("\"");
+        const auto* utf8 = text.toRawUTF8();
+
+        for (size_t i = 0; utf8[i] != 0; ++i)
+        {
+            const auto c = (unsigned char) utf8[i];
+
+            if (c == '"' || c == '\\')
+            {
+                result << "\\" << juce::String::charToString ((juce::juce_wchar) c);
+            }
+            else if (c >= 32 && c < 127)
+            {
+                result << juce::String::charToString ((juce::juce_wchar) c);
+            }
+            else
+            {
+                const char octal[] { '\\', (char) ('0' + (c >> 6)), (char) ('0' + ((c >> 3) & 7)), (char) ('0' + (c & 7)), 0 };
+                result << octal;
+            }
+        }
+
+        return result + "\"";
+    }
+
+    /** A list of texts as a C++ array of string literals. */
+    void appendTextArray (juce::String& out, const juce::String& name, const juce::StringArray& items)
+    {
+        out << "    static const char* const " << name << "[] { ";
+
+        for (const auto& item : items)
+            out << textLiteral (item) << ", ";
+
+        out << (items.isEmpty() ? "nullptr };\n" : "};\n");
+    }
+
     /** Bytes as a C++ array body, 24 to a line. */
     void appendBytes (juce::MemoryOutputStream& out, const juce::MemoryBlock& data)
     {
@@ -118,15 +158,22 @@ namespace
         if (gui.numPresets == 0)
             out << "        { nullptr, 0 },\n";
 
-        out << "    };\n\n    extern const int numPresets = " << gui.numPresets << ";\n}\n";
+        out << "    };\n\n    extern const int numPresets = " << gui.numPresets << ";\n\n";
+
+        out << gui.customArrays << "    extern const CustomElement customElements[] =\n    {\n" << gui.customRows;
+
+        if (gui.numCustom == 0)
+            out << "        { \"\", \"\", nullptr, 0, nullptr, nullptr, 0, nullptr, nullptr, nullptr, nullptr, 0 },\n";
+
+        out << "    };\n\n    extern const int numCustomElements = " << gui.numCustom << ";\n}\n";
         return out.toString();
     }
 }
 
 //==============================================================================
 PluginExporter::Gui PluginExporter::prepareGui (const GuiLayout& layout, const PluginCanvas::Bake& bake,
-                                                const std::map<juce::String, juce::String>& unitsById, const juce::StringArray& displayIds,
-                                                const std::vector<Preset>& presets)
+                                                const std::map<juce::String, juce::String>& unitsById, const std::map<juce::String, juce::String>& namesById,
+                                                const juce::StringArray& displayIds, const std::vector<Preset>& presets)
 {
     Gui gui;
 
@@ -184,6 +231,7 @@ PluginExporter::Gui PluginExporter::prepareGui (const GuiLayout& layout, const P
             case GuiWidget::Type::filter:    kind = "filter";   p1 = role (w, "cutoff"); p2 = role (w, "resonance"); break;
             case GuiWidget::Type::preset:    kind = "preset"; break;
             case GuiWidget::Type::keyboard:  kind = "keyboard"; break;
+            case GuiWidget::Type::custom:    kind = "custom"; p1 = w.param; source = w.source; break;
             // Still things: in the background, unless they lie in front of something that
             // moves; then a layer of their own (one frame), drawn over it.
             case GuiWidget::Type::image:
@@ -195,11 +243,60 @@ PluginExporter::Gui PluginExporter::prepareGui (const GuiLayout& layout, const P
         if (kind == nullptr || area.isEmpty())
             continue;
 
-        const auto colour = (w.colour.isTransparent() ? juce::Colour (0xffe5484d) : w.colour).getARGB();
+        // A programmed element without a colour picks its own.
+        const auto colour = w.type == GuiWidget::Type::custom ? (w.colour.isTransparent() ? 0u : w.colour.getARGB())
+                                                               : (w.colour.isTransparent() ? juce::Colour (0xffe5484d) : w.colour).getARGB();
         const auto vertical = w.type == GuiWidget::Type::slider ? (w.vertical ? 1 : 0) : (area.getHeight() >= area.getWidth() ? 1 : 0);
         // A keyboard's range: its lowest key in mode, its highest in count.
         const auto count = w.type == GuiWidget::Type::keyboard ? w.highNote
+                         : w.type == GuiWidget::Type::custom ? gui.numCustom
                          : strip >= 0 && (w.type == GuiWidget::Type::selector || w.type == GuiWidget::Type::preset) ? bake.strips[(size_t) strip].frames : 0;
+
+        // A programmed element: what its widget tells it, in arrays of its own.
+        if (w.type == GuiWidget::Type::custom)
+        {
+            const auto prefix = "custom" + juce::String (gui.numCustom);
+            juce::StringArray roles, roleParams, names, units, keys, settings;
+
+            auto describe = [&] (const juce::String& id)
+            {
+                names.add (namesById.count (id) > 0 ? namesById.at (id) : juce::String());
+                units.add (unitsById.count (id) > 0 ? unitsById.at (id) : juce::String());
+            };
+
+            describe (w.param);
+
+            for (const auto& [roleName, id] : w.roles)
+            {
+                roles.add (roleName);
+                roleParams.add (id);
+                describe (id);
+            }
+
+            for (const auto& entry : w.settings)
+            {
+                keys.add (entry.first);
+                settings.add (w.settingText (entry.first));
+            }
+
+            appendTextArray (gui.customArrays, prefix + "Options", w.options);
+            appendTextArray (gui.customArrays, prefix + "Roles", roles);
+            appendTextArray (gui.customArrays, prefix + "RoleParams", roleParams);
+            appendTextArray (gui.customArrays, prefix + "Names", names);
+            appendTextArray (gui.customArrays, prefix + "Units", units);
+            appendTextArray (gui.customArrays, prefix + "Keys", keys);
+            appendTextArray (gui.customArrays, prefix + "Values", settings);
+            gui.customArrays << "\n";
+
+            gui.customRows << "        { " << textLiteral (w.element) << ", " << textLiteral (w.label) << ", "
+                           << prefix << "Options, " << w.options.size() << ", "
+                           << prefix << "Roles, " << prefix << "RoleParams, " << roles.size() << ", "
+                           << prefix << "Names, " << prefix << "Units, "
+                           << prefix << "Keys, " << prefix << "Values, " << keys.size() << " },\n";
+
+            gui.elementTypes.addIfNotAlreadyThere (w.element);
+            ++gui.numCustom;
+        }
 
         int mode = 0;
 
@@ -350,6 +447,38 @@ PluginExporter::Result PluginExporter::exportPlugins (const juce::File& projectF
     auto moduleFiles = modules.findChildFiles (juce::File::findFiles, false, "*.cpp");
     moduleFiles.sort();
 
+    // Programmed elements: their runtime (drawing, text, the font) and their files, when the
+    // window uses any.
+    const auto elements = projectFolder.getChildFile (WasmCompiler::elementsFolderName);
+    auto elementFiles = elements.findChildFiles (juce::File::findFiles, false, "*.cpp");
+    elementFiles.sort();
+    const bool withElements = gui.numCustom > 0;
+
+    if (withElements)
+    {
+        juce::StringArray defined, missing;
+
+        for (const auto& element : WasmCompiler::findElements (projectFolder))
+            defined.add (element.name);
+
+        for (const auto& type : gui.elementTypes)
+            if (! defined.contains (type))
+                missing.add (type.isNotEmpty() ? type : juce::String ("(no name)"));
+
+        if (! missing.isEmpty())
+        {
+            result.log = "The window uses programmed elements that aren't in the project's elements folder: " + missing.joinIntoString (", ")
+                       + ". Ask Stella AI to program them, or take them off the window.";
+            return result;
+        }
+
+        if (! WasmCompiler::writeElementRuntime (work))
+        {
+            result.log = "Couldn't write into the build folder " + work.getFullPathName();
+            return result;
+        }
+    }
+
     const auto baseName = juce::File::createLegalFileName (info.name);
     const auto builtClap = work.getChildFile (baseName + ".clap");
     const auto builtVst3 = work.getChildFile (baseName + ".vst3");
@@ -366,6 +495,12 @@ PluginExporter::Result PluginExporter::exportPlugins (const juce::File& projectF
         args.add (target == Target::app ? "-mwindows" : "-shared");   // an app with a window, or a plugin library
         args.add ("-I" + work.getFullPathName());
         args.add ("-I" + modules.getFullPathName());
+
+        if (withElements)
+        {
+            args.add ("-DSTELLA_ELEMENTS=1");
+            args.add ("-I" + elements.getFullPathName());
+        }
 
         if (target != Target::app)
             args.add ("-I" + (target == Target::vst3 ? vst3Headers : clapHeaders).getFullPathName());
@@ -384,6 +519,14 @@ PluginExporter::Result PluginExporter::exportPlugins (const juce::File& projectF
 
         for (const auto& file : moduleFiles)
             args.add (file.getFullPathName());
+
+        if (withElements)
+        {
+            args.add (work.getChildFile ("stella_elements.cpp").getFullPathName());
+
+            for (const auto& file : elementFiles)
+                args.add (file.getFullPathName());
+        }
 
         args.addArray ({ "-Wl,--strip-all", "-luser32", "-lgdi32" });
 
@@ -409,6 +552,7 @@ PluginExporter::Result PluginExporter::exportPlugins (const juce::File& projectF
     auto tidy = [&] (juce::String log)
     {
         return log.replace (modules.getFullPathName() + juce::File::getSeparatorString(), "modules/")
+                  .replace (elements.getFullPathName() + juce::File::getSeparatorString(), "elements/")
                   .replace (work.getFullPathName() + juce::File::getSeparatorString(), "")
                   .trim();
     };

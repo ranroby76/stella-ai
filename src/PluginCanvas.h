@@ -14,6 +14,8 @@
 #include <memory>
 #include <optional>
 
+class WasmElements;
+
 //==============================================================================
 /**
     The Edit UI tab's canvas: the plugin's window, drawn from its layout, sitting on a big
@@ -45,7 +47,9 @@
     window at the back; until it's selected, dragging it moves the view, as empty space does.
 
     Knobs, sliders and switches are drawn from their looks (see Looks): a frame for each
-    value, made by KnobMaker's layer renderer.
+    value, made by KnobMaker's layer renderer. Programmed elements (Stella AI's own, from
+    the project's elements folder) draw themselves, through the GUI's sandboxed module
+    (WasmElements); in Play mode they get the mouse, and their popups lie over everything.
 */
 class PluginCanvas final : public juce::Component,
                            public juce::DragAndDropTarget,
@@ -79,6 +83,9 @@ public:
 
     /** The presets a preset widget steps through, and the one chosen. */
     void setPresets (const juce::StringArray& names, int current);
+
+    /** The GUI's programmed elements from the latest build (nullptr: none, or not built yet). */
+    void setElements (std::shared_ptr<WasmElements> newElements);
 
     /** The looks knobs, sliders and switches are drawn from (owned by the Workspace). */
     void setLooks (Looks& looksToUse);
@@ -147,6 +154,7 @@ public:
     std::function<void()> onLayoutEdited;                          // save it
     std::function<void (int widgetIndex)> onEditLook;              // open a control's look in the Knob Studio
     std::function<void (int presetIndex)> onPresetChosen;          // a preset widget was clicked in Play mode
+    std::function<void (const juce::String& why)> onElementsFailed; // the programmed elements crashed or got stuck
 
     /** Live data, read about 30 times a second. */
     std::function<float (const juce::String& source, bool rms)> readLevel;
@@ -183,6 +191,7 @@ public:
 private:
     class ElementMenu;
     class AiBanner;
+    class ElementBridge;
 
     //==========================================================================
     // The elements
@@ -218,6 +227,35 @@ private:
     void drawLive (juce::Graphics&, const GuiWidget&, int index, Part part, float override);
     void drawCurve (juce::Graphics&, const GuiWidget&, Part part);
     void drawPanel (juce::Graphics&);   // the window's colours and background picture, in plugin pixels
+
+    //==========================================================================
+    // Programmed elements (PluginCanvas_Elements.cpp)
+    struct ElementView
+    {
+        juce::String type;                 // the element it was made as
+        bool created = false;
+        int width = 0, height = 0;
+        juce::Image image, popupImage;
+        juce::Rectangle<int> popup;        // the open popup, in plugin pixels (empty: closed)
+    };
+
+    void syncElements();                   // the layout's custom elements made, resized or let go
+    void refreshElements (bool all);       // drawn again where they changed (all: every one)
+    void drawElement (juce::Graphics&, const GuiWidget&, int index);
+    void drawElementPopups (juce::Graphics&);
+    int popupAt (juce::Point<float> plugin) const;   // whose open popup is there (-1: none)
+    bool anyPopupOpen() const;
+    void closeElementPopups();
+
+    /** The mouse to a programmed element (or its popup): event as in WasmElements::mouse. */
+    bool elementMouse (int index, bool popup, int event, juce::Point<float> plugin, const juce::ModifierKeys& mods,
+                       bool doubleClick = false, float notches = 0.0f);
+
+    /** Hovering in Play mode: the element (or popup) under the mouse hears it move, the one
+        it left hears it leave. */
+    void hoverElements (juce::Point<float> plugin, const juce::ModifierKeys& mods);
+    void checkElementsFailed();
+    float frameLevel (const juce::String& source, bool rms);
     void drawPicture (juce::Graphics&, const juce::String& name, juce::Rectangle<float> area, const juce::String& mode);
     juce::Rectangle<int> movingAreaOf (const GuiWidget& widget) const;
     juce::Rectangle<int> knobSquare (const GuiWidget& widget) const;
@@ -317,6 +355,14 @@ private:
 
     int heldNote = -1, heldKeyboard = -1;                          // the key the mouse holds down, and on which keyboard
     std::bitset<128> notesShown;                                   // the notes the keyboards show as down
+
+    std::shared_ptr<WasmElements> elements;
+    std::unique_ptr<ElementBridge> elementBridge;
+    std::map<int, ElementView> elementViews;                       // by widget index
+    juce::String elementsProblem;                                  // why the elements stopped
+    bool pressedPopup = false;                                     // the press went to a popup
+    int hoveredElement = -1;                                       // the element (or popup) the mouse is over
+    bool hoveredPopup = false;
 
     std::map<int, float> meterLevels;                              // by widget: shown level, with fall-back
     std::map<juce::String, float> frameLevels;                     // read once per frame per source

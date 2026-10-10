@@ -6,6 +6,8 @@
 
 #include "AudioEngine.h"
 
+class WasmElements;
+
 #include <atomic>
 #include <map>
 #include <functional>
@@ -16,7 +18,8 @@
 /**
     The plugin being built, playing live: compiles the project, starts the result in its
     sandbox and hands it to the audio engine. Rebuilding swaps the new version in while
-    playing, and parameters keep their values across rebuilds (matched by id).
+    playing, and parameters keep their values across rebuilds (matched by id). The GUI's
+    programmed elements are built with it, into a sandbox of their own, for the canvas.
 
     If the plugin stops (it crashed, or got stuck), the studio carries on and says why.
 */
@@ -98,6 +101,15 @@ public:
     /** Called on the message thread whenever the state, status or parameters change. */
     std::function<void()> onChanged;
 
+    /** Called on the message thread with the GUI's programmed elements, each time a build
+        succeeds (nullptr: the project has none), and with nullptr when it's unloaded. */
+    std::function<void (std::shared_ptr<WasmElements>)> onElements;
+
+    /** The programmed elements crashed or got stuck while running (the canvas found out):
+        why, until the next build. Stella AI is told, to fix them. */
+    void setElementsProblem (const juce::String& why)    { elementsProblem = why; }
+    juce::String getElementsProblem() const              { return elementsProblem; }
+
 private:
     void timerCallback() override;
     void start (std::vector<std::uint8_t> wasm, const juce::String& compilerLog, double seconds, bool compiled);
@@ -111,7 +123,7 @@ private:
     AudioEngine& audio;
 
     State state = State::idle;
-    juce::String status, log;
+    juce::String status, log, elementsProblem;
     juce::Array<Param> params;
     juce::Array<ModuleInfo> modules;
     juce::Array<DisplayInfo> displays;

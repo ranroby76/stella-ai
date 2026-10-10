@@ -255,6 +255,11 @@ WasmPlugin::WasmPlugin()
 
 WasmPlugin::~WasmPlugin() = default;
 
+wasm_engine_t* WasmPlugin::engine()
+{
+    return Engine::get();
+}
+
 std::unique_ptr<WasmPlugin> WasmPlugin::load (const std::vector<std::uint8_t>& wasm, double sampleRate,
                                               int maxFrames, std::string& error)
 {

@@ -155,7 +155,28 @@ namespace stella::gui
 
                     case WM_MOUSEMOVE:
                         if ((w & MK_LBUTTON) != 0)
+                        {
                             self->editor.mouseDrag (pointerX (l), pointerY (l), fineKeys (w));
+                        }
+                        else
+                        {
+                            // Hovering: programmed elements hear it, and when it leaves.
+                            if (! self->tracking)
+                            {
+                                TRACKMOUSEEVENT track {};
+                                track.cbSize = sizeof (track);
+                                track.dwFlags = TME_LEAVE;
+                                track.hwndTrack = window;
+                                self->tracking = TrackMouseEvent (&track) != 0;
+                            }
+
+                            self->editor.mouseMove (pointerX (l), pointerY (l));
+                        }
+                        return 0;
+
+                    case WM_MOUSELEAVE:
+                        self->tracking = false;
+                        self->editor.mouseExit();
                         return 0;
 
                     case WM_LBUTTONUP:
@@ -185,6 +206,7 @@ namespace stella::gui
             Editor editor;
             std::vector<std::uint32_t> pixels;
             HWND hwnd = nullptr;
+            bool tracking = false;   // asked to hear when the mouse leaves
         };
     }
 

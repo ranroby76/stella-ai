@@ -69,6 +69,9 @@ namespace
         juce::String line;
         line << index << ": " << GuiLayout::typeName (w.type);
 
+        if (w.type == GuiWidget::Type::custom)
+            line << " element=" << (w.element.isNotEmpty() ? w.element : juce::String ("(none)"));
+
         if (w.label.isNotEmpty())
             line << " \"" << w.label.replaceCharacters ("\r\n", "  ").substring (0, 48) << "\"";
 
@@ -88,6 +91,9 @@ namespace
 
         if (w.source.isNotEmpty())
             line << " source=" << w.source;
+
+        if (! w.options.isEmpty() && (w.type == GuiWidget::Type::selector || w.type == GuiWidget::Type::custom))
+            line << " options=" << w.options.joinIntoString ("|").substring (0, 80);
 
         if (w.image.isNotEmpty())
             line << " image=" << w.image;
@@ -202,6 +208,9 @@ const juce::String& ProjectTools::getGuide()
         juce::String text = juce::String::fromUTF8 (StellaRuntimeData::stella_builder_guide_md, StellaRuntimeData::stella_builder_guide_mdSize);
         text << "\n\n## stella_api.h\n```cpp\n"
              << juce::String::fromUTF8 (StellaRuntimeData::stella_api_h, StellaRuntimeData::stella_api_hSize)
+             << "\n```\n"
+             << "\n## stella_element_api.h (programmed GUI elements)\n```cpp\n"
+             << juce::String::fromUTF8 (StellaRuntimeData::stella_element_api_h, StellaRuntimeData::stella_element_api_hSize)
              << "\n```\n";
         return text;
     }();
@@ -220,7 +229,7 @@ juce::var ProjectTools::getDefinitions (bool builder) const
 
     {
         auto props = object();
-        props.getDynamicObject()->setProperty ("path", property ("string", "graph.json, gui/layout.json, or a file in modules/ such as modules/LowPass.cpp"));
+        props.getDynamicObject()->setProperty ("path", property ("string", "graph.json, gui/layout.json, or a file in modules/ or elements/ such as modules/LowPass.cpp"));
         tools.add (tool ("read_file", "Reads one of the project's files.", props, { "path" }));
     }
 
@@ -240,8 +249,9 @@ juce::var ProjectTools::getDefinitions (bool builder) const
         props.getDynamicObject()->setProperty ("change", listProperty ("object", "Elements to change: { \"index\": 3, then the fields to set, named as in layout.json, "
                                                                                   "e.g. \"x\": 40, \"label\": \"Cutoff\", \"style\": \"Black knob\" }. Fields not given stay as they are."));
         props.getDynamicObject()->setProperty ("add", listProperty ("object", "New elements, written as in layout.json, e.g. { \"type\": \"keyboard\", \"x\": 20, \"y\": 330, "
-                                                                               "\"w\": 720, \"h\": 80, \"low\": \"C2\", \"high\": \"C6\" }. They go in front of the others; "
-                                                                               "\"at\": 0 puts one at the back."));
+                                                                               "\"w\": 720, \"h\": 80, \"low\": \"C2\", \"high\": \"C6\" }, or a programmed one: "
+                                                                               "{ \"type\": \"custom\", \"element\": \"DropDown\", \"param\": \"filter.mode\", ... }. They go in front "
+                                                                               "of the others; \"at\": 0 puts one at the back."));
         props.getDynamicObject()->setProperty ("width", property ("integer", "The window's new width."));
         props.getDynamicObject()->setProperty ("height", property ("integer", "The window's new height."));
         props.getDynamicObject()->setProperty ("background", property ("object", "The window's colours: { \"top\": \"#FF2B2B30\", \"bottom\": \"#FF17171A\" }."));
@@ -296,7 +306,8 @@ juce::var ProjectTools::getDefinitions (bool builder) const
         tools.add (tool ("start_building",
                          builder ? "Already building: there's no need to call this."
                                  : "Hands over to Stella's builder to create or change the plugin's sound: anything that needs code written or "
-                                   "changed, or the graph rewired. Call it as soon as the user asks for a plugin or a change to one.",
+                                   "changed (a new kind of GUI element the toolbox doesn't have, too), or the graph rewired. Call it as soon as "
+                                   "the user asks for a plugin or a change to one.",
                          props, { "task" }));
     }
 
@@ -305,15 +316,16 @@ juce::var ProjectTools::getDefinitions (bool builder) const
 
     {
         auto props = object();
-        props.getDynamicObject()->setProperty ("path", property ("string", "modules/<Name>.cpp for a module, modules/<Name>.h for a shared helper"));
+        props.getDynamicObject()->setProperty ("path", property ("string", "modules/<Name>.cpp for a module, modules/<Name>.h for a shared helper, "
+                                                                           "elements/<Name>.cpp for a programmed GUI element"));
         props.getDynamicObject()->setProperty ("content", property ("string", "The complete file."));
-        tools.add (tool ("write_file", "Creates or replaces a file in modules/. Always give the complete file.", props, { "path", "content" }));
+        tools.add (tool ("write_file", "Creates or replaces a file in modules/ or elements/. Always give the complete file.", props, { "path", "content" }));
     }
 
     {
         auto props = object();
-        props.getDynamicObject()->setProperty ("path", property ("string", "A file in modules/"));
-        tools.add (tool ("delete_file", "Deletes a file in modules/ that the plugin no longer uses.", props, { "path" }));
+        props.getDynamicObject()->setProperty ("path", property ("string", "A file in modules/ or elements/"));
+        tools.add (tool ("delete_file", "Deletes a file in modules/ or elements/ that the plugin no longer uses.", props, { "path" }));
     }
 
     {
@@ -323,7 +335,8 @@ juce::var ProjectTools::getDefinitions (bool builder) const
     }
 
     tools.add (tool ("build",
-                     "Compiles the project and plays it live in the studio. Returns the plugin's parameters, or the compiler's errors to fix.",
+                     "Compiles the project (its modules, and its programmed GUI elements) and plays it live in the studio. Returns the plugin's "
+                     "parameters, or the compiler's errors to fix.",
                      object(), {}));
 
     return tools;
@@ -361,6 +374,30 @@ juce::String ProjectTools::describeProject() const
 
     for (const auto& f : files)
         text << "- modules/" << f.getFileName() << " (" << countLines (f.loadFileAsString()) << " lines)\n";
+
+    // Programmed GUI elements: their files, and the elements they make.
+    auto elementFiles = project.getFolder().getChildFile (WasmCompiler::elementsFolderName).findChildFiles (juce::File::findFiles, false, "*.cpp;*.h");
+    elementFiles.sort();
+
+    if (! elementFiles.isEmpty())
+    {
+        text << "\nFiles in elements/:\n";
+
+        for (const auto& f : elementFiles)
+            text << "- elements/" << f.getFileName() << " (" << countLines (f.loadFileAsString()) << " lines)\n";
+    }
+
+    const auto programmed = WasmCompiler::findElements (project.getFolder());
+
+    text << "\nProgrammed elements (\"type\": \"custom\", \"element\": <name>; use them before writing new ones):";
+
+    if (programmed.isEmpty())
+        text << " none yet.\n";
+    else
+        text << "\n";
+
+    for (const auto& e : programmed)
+        text << "- " << e.name << ": " << e.description << " (" << e.file << ")\n";
 
     const auto layoutFile = project.getGuiFolder().getChildFile (GuiLayout::fileName);
     GuiLayout layout;
@@ -482,6 +519,10 @@ juce::String ProjectTools::describeProject() const
         case LivePreview::State::failed:    text << "failed: " << preview.getStatus() << "\n" << preview.getLog().substring (0, 1500) << "\n"; break;
     }
 
+    if (const auto problem = preview.getElementsProblem(); problem.isNotEmpty())
+        text << "The GUI's programmed elements stopped while running (" << problem.substring (0, 600)
+             << "). Fix the element's code (out-of-range indexes, endless loops) and build again.\n";
+
     return text;
 }
 
@@ -505,22 +546,28 @@ juce::Result ProjectTools::resolve (const juce::String& path, juce::File& file, 
         return juce::Result::ok();
     }
 
-    // Only modules/<identifier>.cpp or .h: nothing outside the project's modules folder.
-    if (clean.startsWith ("modules/"))
+    // Only modules/<identifier>.cpp or .h, or elements/<identifier>.cpp or .h: nothing outside
+    // the project's modules and elements folders.
+    for (const auto* folderName : { "modules", WasmCompiler::elementsFolderName })
     {
-        const auto name = clean.fromFirstOccurrenceOf ("modules/", false, false);
+        const auto prefix = juce::String (folderName) + "/";
+
+        if (! clean.startsWith (prefix))
+            continue;
+
+        const auto name = clean.fromFirstOccurrenceOf (prefix, false, false);
         const auto stem = name.upToLastOccurrenceOf (".", false, false);
         const auto extension = name.fromLastOccurrenceOf (".", false, false);
 
         if (isIdentifier (stem) && (extension == "cpp" || extension == "h"))
         {
-            file = project.getModulesFolder().getChildFile (name);
+            file = project.getFolder().getChildFile (folderName).getChildFile (name);
             return juce::Result::ok();
         }
     }
 
     return juce::Result::fail ("\"" + path + "\" isn't allowed: use graph.json or gui/layout.json (read only; write them with "
-                               "set_graph and set_layout) or modules/<Name>.cpp / modules/<Name>.h.");
+                               "set_graph and set_layout), modules/<Name>.cpp / modules/<Name>.h, or elements/<Name>.cpp / elements/<Name>.h.");
 }
 
 juce::String ProjectTools::describeCall (const juce::String& name, const juce::var& input)
@@ -530,8 +577,11 @@ juce::String ProjectTools::describeCall (const juce::String& name, const juce::v
 
     if (name == "write_file")
     {
-        // modules/StereoWidener.cpp: "Making the stereo widener". Headers go by quietly.
-        if (! path.startsWith ("modules/") || path.endsWithIgnoreCase (".h"))
+        // modules/StereoWidener.cpp: "Making the stereo widener"; elements/DropDown.cpp: "Making
+        // the drop down for the panel". Headers go by quietly.
+        const bool element = path.startsWith (juce::String (WasmCompiler::elementsFolderName) + "/");
+
+        if ((! path.startsWith ("modules/") && ! element) || path.endsWithIgnoreCase (".h"))
             return {};
 
         const auto stem = path.fromLastOccurrenceOf ("/", false, false).upToLastOccurrenceOf (".", false, false);
@@ -553,7 +603,7 @@ juce::String ProjectTools::describeCall (const juce::String& name, const juce::v
             words << juce::String::charToString (juce::CharacterFunctions::toLowerCase (c));
         }
 
-        return "Making the " + words.trim();
+        return "Making the " + words.trim() + (element ? " for the panel" : "");
     }
 
     if (name == "delete_file")
@@ -662,7 +712,20 @@ juce::String ProjectTools::checkLayout (const GuiLayout& layout, const GuiLayout
                     unknownLooks.addIfNotAlreadyThere (w.style);
     }
 
-    return (unbound.isEmpty() || preview.getParameters().isEmpty() ? juce::String()
+    // Custom elements must be programmed: a file in elements/ that makes them.
+    juce::StringArray programmed, unprogrammed;
+
+    for (const auto& e : WasmCompiler::findElements (project.getFolder()))
+        programmed.add (e.name);
+
+    for (const auto& w : layout.widgets)
+        if (w.type == GuiWidget::Type::custom && ! programmed.contains (w.element))
+            unprogrammed.addIfNotAlreadyThere (w.element.isNotEmpty() ? w.element : juce::String ("(no element name)"));
+
+    return (unprogrammed.isEmpty() ? juce::String()
+                                   : "\nThese elements aren't toolbox types and aren't programmed: " + unprogrammed.joinIntoString (", ")
+                                         + ". Use a toolbox type, or program each one (elements/<Name>.cpp ending with STELLA_ELEMENT (<Name>, ...), then build).")
+         + (unbound.isEmpty() || preview.getParameters().isEmpty() ? juce::String()
                                                                   : "\nThese parameter ids don't exist in the plugin (fix or remove those elements): "
                                                                         + unbound.joinIntoString (", "))
          + (missingPictures.isEmpty() ? juce::String()
@@ -714,7 +777,11 @@ void ProjectTools::run (const juce::String& name, const juce::var& input, Done d
         if (! file.replaceWithText (content))
             return fail ("Couldn't write " + file.getFullPathName());
 
-        done ("Wrote modules/" + file.getFileName() + " (" + juce::String (countLines (content)) + " lines).", false);
+        const auto written = file.getParentDirectory().getFileName() + "/" + file.getFileName();
+        const bool isElement = file.getParentDirectory().getFileName() == WasmCompiler::elementsFolderName;
+        done ("Wrote " + written + " (" + juce::String (countLines (content)) + " lines)."
+                  + (isElement ? " Build to compile it; then place it with { \"type\": \"custom\", \"element\": <name> }." : ""),
+              false);
         return;
     }
 
@@ -728,7 +795,7 @@ void ProjectTools::run (const juce::String& name, const juce::var& input, Done d
         if (file.existsAsFile() && ! file.deleteFile())
             return fail ("Couldn't delete " + file.getFullPathName());
 
-        done ("Deleted modules/" + file.getFileName() + ".", false);
+        done ("Deleted " + file.getParentDirectory().getFileName() + "/" + file.getFileName() + ".", false);
         return;
     }
 

@@ -52,8 +52,9 @@ juce_add_binary_data(StellaLooks
     NAMESPACE   StellaLooks
     SOURCES     ${STELLA_LOOKS})
 
-# The Stella runtime, the plugin wrappers and Stella AI's guide, carried inside the app:
-# the runtime and wrappers are compiled into each plugin, not into the studio.
+# The Stella runtime, the plugin wrappers, the programmed GUI elements' runtime with its
+# font (Inter, SIL Open Font License: fonts/inter_license.txt) and Stella AI's guide, carried
+# inside the app: the runtimes and wrappers are compiled into each plugin, not into the studio.
 juce_add_binary_data(StellaRuntimeData
     HEADER_NAME StellaRuntimeData.h
     NAMESPACE   StellaRuntimeData
@@ -69,6 +70,13 @@ juce_add_binary_data(StellaRuntimeData
         src/stella_gui_win32.cpp
         src/stella_keys.h
         src/stb_image.h
+        src/stella_element_api.h
+        src/stella_element_host.h
+        src/stella_elements.h
+        src/stella_elements.cpp
+        src/stb_truetype.h
+        fonts/inter_regular.ttf
+        fonts/inter_bold.ttf
         src/stella_builder_guide.md)
 
 # ------------------------------------------------------------------------------
@@ -102,6 +110,9 @@ target_sources(StellaAIStudio PRIVATE
     src/StellaAi.cpp
     src/WasmPlugin.h
     src/WasmPlugin.cpp
+    src/WasmElements.h
+    src/WasmElements.cpp
+    src/stella_element_host.h
     src/WasmCompiler.h
     src/WasmCompiler.cpp
     src/LivePreview.h
@@ -124,6 +135,7 @@ target_sources(StellaAIStudio PRIVATE
     src/PluginCanvasMenu.h
     src/PluginCanvas_Menu.cpp
     src/PluginCanvas_Mouse.cpp
+    src/PluginCanvas_Elements.cpp
     src/Primitives.h
     src/Primitives.cpp
     src/Toolbox.h

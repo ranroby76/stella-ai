@@ -10,6 +10,13 @@
 #include <cmath>
 #include <cstring>
 
+#if STELLA_ELEMENTS
+ #include "stella_elements.h"
+
+ #include <chrono>
+ #include <map>
+#endif
+
 #if defined (__clang__)
  #pragma clang diagnostic push
  #pragma clang diagnostic ignored "-Weverything"
@@ -194,6 +201,238 @@ namespace stella::gui
     }
 
     //==========================================================================
+   #if STELLA_ELEMENTS
+    /** The programmed elements: the runtime that runs them, and what they ask of the plugin. */
+    struct Editor::Elements final : ui::ElementHost
+    {
+        explicit Elements (Editor& e)
+            : editor (e), started (std::chrono::steady_clock::now())
+        {
+            for (int i = 0; i < numWidgets; ++i)
+            {
+                const auto* c = custom (i);
+
+                if (c == nullptr)
+                    continue;
+
+                const auto& w = widgets[i];
+                auto& slots = params[i];
+                slots.push_back (w.param != nullptr ? editor.host.findParam (w.param) : -1);
+
+                for (int r = 0; r < c->numRoles; ++r)
+                    slots.push_back (c->roleParams[r] != nullptr ? editor.host.findParam (c->roleParams[r]) : -1);
+
+                runtime.create (i, c->type, w.w, w.h);
+            }
+        }
+
+        const CustomElement* custom (int element) const
+        {
+            if (element < 0 || element >= numWidgets || widgets[element].kind != Kind::custom)
+                return nullptr;
+
+            const auto index = widgets[element].count;
+            return index >= 0 && index < numCustomElements ? &customElements[index] : nullptr;
+        }
+
+        int paramOf (int element, int slot) const
+        {
+            const auto found = params.find (element);
+            return found != params.end() && slot >= 0 && slot < (int) found->second.size() ? found->second[(size_t) slot] : -1;
+        }
+
+        //======================================================================
+        bool paramInfo (int element, int slot, int info, float& result) override
+        {
+            const auto p = paramOf (element, slot);
+
+            if (p < 0)
+                return false;
+
+            if (info == valueInfo)
+            {
+                result = editor.host.getValue (p);
+                return true;
+            }
+
+            float min = 0.0f, max = 1.0f, def = 0.0f, skew = 1.0f;
+            editor.host.getRange (p, min, max, def, skew);
+
+            switch (info)
+            {
+                case minInfo:      result = min; return true;
+                case maxInfo:      result = max; return true;
+                case defaultInfo:  result = def; return true;
+                case skewInfo:     result = skew; return true;
+                default:           return false;
+            }
+        }
+
+        int findSlot (int element, const std::string& role) override
+        {
+            const auto* c = custom (element);
+
+            if (c == nullptr)
+                return -1;
+
+            if (role.empty() || role == "param")
+                return widgets[element].param != nullptr ? 0 : -1;
+
+            for (int r = 0; r < c->numRoles; ++r)
+                if (c->roles[r] != nullptr && role == c->roles[r])
+                    return r + 1;
+
+            return -1;
+        }
+
+        void setValue (int element, int slot, float newValue) override
+        {
+            if (const auto p = paramOf (element, slot); p >= 0)
+                editor.host.setValue (p, newValue);
+        }
+
+        void gesture (int element, int slot, bool starts) override
+        {
+            if (const auto p = paramOf (element, slot); p >= 0)
+            {
+                if (starts) editor.host.beginEdit (p);
+                else        editor.host.endEdit (p);
+            }
+        }
+
+        bool text (int element, int which, int index, const std::string& key, std::string& result) override
+        {
+            const auto* c = custom (element);
+
+            if (c == nullptr)
+                return false;
+
+            const char* t = nullptr;
+
+            switch (which)
+            {
+                case labelText:      t = c->label; break;
+                case optionText:     t = index >= 0 && index < c->numOptions ? c->options[index] : nullptr; break;
+                case paramNameText:  t = index >= 0 && index <= c->numRoles ? c->slotNames[index] : nullptr; break;
+                case unitText:       t = index >= 0 && index <= c->numRoles ? c->slotUnits[index] : nullptr; break;
+
+                case settingText:
+                    for (int s = 0; s < c->numSettings; ++s)
+                        if (c->settingKeys[s] != nullptr && key == c->settingKeys[s])
+                            t = c->settingValues[s];
+                    break;
+
+                default:
+                    break;
+            }
+
+            if (t == nullptr)
+                return false;
+
+            result = t;
+            return true;
+        }
+
+        int numOptions (int element) override
+        {
+            const auto* c = custom (element);
+            return c != nullptr ? c->numOptions : 0;
+        }
+
+        std::uint32_t colour (int element) override                          { return custom (element) != nullptr ? widgets[element].colour : 0u; }
+        float level (int element, bool rms) override                         { return editor.host.takeLevel (element, rms); }
+        void readScope (int element, float* destination, int n) override     { editor.host.readScope (element, destination, n); }
+        void playNote (int, int note, float velocity) override              { editor.host.playNote (note, velocity); }
+        bool isNoteDown (int note) override                                  { return editor.host.isNoteDown (note); }
+
+        double seconds() override
+        {
+            return std::chrono::duration<double> (std::chrono::steady_clock::now() - started).count();
+        }
+
+        //======================================================================
+        /** Where an element's open popup lies in the window: kept inside it where it fits,
+            as the studio keeps it. */
+        bool popupArea (int element, int& x, int& y, int& w, int& h)
+        {
+            if (custom (element) == nullptr || ! runtime.popupArea (element, x, y, w, h))
+                return false;
+
+            x = std::min (std::max (0, width - w), std::max (0, widgets[element].x + x));
+            y = std::min (std::max (0, height - h), std::max (0, widgets[element].y + y));
+            return true;
+        }
+
+        /** Whose open popup is at a point (the frontmost); -1 if none. */
+        int popupAt (int px, int py)
+        {
+            for (int i = numWidgets; --i >= 0;)
+            {
+                int x = 0, y = 0, w = 0, h = 0;
+
+                if (popupArea (i, x, y, w, h) && px >= x && py >= y && px < x + w && py < y + h)
+                    return i;
+            }
+
+            return -1;
+        }
+
+        bool closePopups()
+        {
+            bool closed = false;
+
+            for (int i = 0; i < numWidgets; ++i)
+            {
+                int x = 0, y = 0, w = 0, h = 0;
+
+                if (popupArea (i, x, y, w, h))
+                {
+                    runtime.closePopup (i);
+                    closed = true;
+                }
+            }
+
+            return closed;
+        }
+
+        /** The mouse to an element, or its popup, in its own pixels. */
+        bool mouse (int element, bool popup, int event, int x, int y, bool fine, bool doubleClick = false, float notches = 0.0f)
+        {
+            int ox = 0, oy = 0, w = 0, h = 0;
+
+            if (popup)
+            {
+                if (! popupArea (element, ox, oy, w, h))
+                    return false;
+            }
+            else
+            {
+                ox = widgets[element].x;
+                oy = widgets[element].y;
+            }
+
+            ui::Mouse m;
+            m.x = (float) (x - ox) + 0.5f;
+            m.y = (float) (y - oy) + 0.5f;
+            m.shift = fine;
+            m.doubleClick = doubleClick;
+            lastX = x;
+            lastY = y;
+            return runtime.mouse (element, popup, event, m, notches);
+        }
+
+        Editor& editor;
+        std::map<int, std::vector<int>> params;   // per element: its parameters' indexes, by slot
+        std::chrono::steady_clock::time_point started;
+        int pressed = -1, hovered = -1, lastX = 0, lastY = 0;
+        bool pressedPopup = false, hoveredPopup = false;
+        ui::ElementRuntime runtime { *this };   // last: it goes first, while the rest is still there
+    };
+   #else
+    struct Editor::Elements {};
+   #endif
+
+    //==========================================================================
     Editor::Image Editor::decode (const unsigned char* png, int size)
     {
         Image image;
@@ -240,6 +479,11 @@ namespace stella::gui
 
         meterLevels.assign ((size_t) numWidgets, 0.0f);
         scopeBuffer.assign (2048, 0.0f);
+
+       #if STELLA_ELEMENTS
+        if (numCustomElements > 0)
+            elements = std::make_unique<Elements> (*this);
+       #endif
     }
 
     Editor::~Editor()
@@ -278,7 +522,7 @@ namespace stella::gui
             const auto& w = widgets[i];
             const bool interactive = w.kind == Kind::knob || w.kind == Kind::slider || w.kind == Kind::toggle
                                   || w.kind == Kind::selector || w.kind == Kind::xy || w.kind == Kind::preset
-                                  || w.kind == Kind::keyboard;
+                                  || w.kind == Kind::keyboard || w.kind == Kind::custom;
 
             if (interactive && x >= w.x && y >= w.y && x < w.x + w.w && y < w.y + w.h)
                 return i;
@@ -307,7 +551,26 @@ namespace stella::gui
 
     void Editor::mouseDown (int x, int y, bool fine, bool doubleClick)
     {
-        (void) fine;
+       #if STELLA_ELEMENTS
+        // A programmed element's open popup takes the click; a click anywhere else closes it,
+        // and goes no further.
+        if (elements != nullptr)
+        {
+            elements->pressed = -1;
+
+            if (const auto owner = elements->popupAt (x, y); owner >= 0)
+            {
+                elements->pressed = owner;
+                elements->pressedPopup = true;
+                elements->mouse (owner, true, ui::ElementRuntime::down, x, y, fine, doubleClick);
+                return;
+            }
+
+            if (elements->closePopups())
+                return;
+        }
+       #endif
+
         const auto index = widgetAt (x, y);
 
         if (index < 0)
@@ -391,6 +654,17 @@ namespace stella::gui
                 playKey (index, x, y);
                 break;
 
+            case Kind::custom:
+               #if STELLA_ELEMENTS
+                // It takes the drag and the release only if it asks for them.
+                if (elements != nullptr && elements->mouse (index, false, ui::ElementRuntime::down, x, y, fine, doubleClick))
+                {
+                    elements->pressed = index;
+                    elements->pressedPopup = false;
+                }
+               #endif
+                break;
+
             case Kind::meter: case Kind::lamp: case Kind::scope: case Kind::envelope: case Kind::filter: case Kind::picture:
                 break;
         }
@@ -451,6 +725,14 @@ namespace stella::gui
 
     void Editor::mouseDrag (int x, int y, bool fine)
     {
+       #if STELLA_ELEMENTS
+        if (elements != nullptr && elements->pressed >= 0)
+        {
+            elements->mouse (elements->pressed, elements->pressedPopup, ui::ElementRuntime::drag, x, y, fine);
+            return;
+        }
+       #endif
+
         if (active < 0)
             return;
 
@@ -478,6 +760,15 @@ namespace stella::gui
 
     void Editor::mouseUp()
     {
+       #if STELLA_ELEMENTS
+        if (elements != nullptr && elements->pressed >= 0)
+        {
+            const auto element = elements->pressed;
+            elements->pressed = -1;
+            elements->mouse (element, elements->pressedPopup, ui::ElementRuntime::up, elements->lastX, elements->lastY, false);
+        }
+       #endif
+
         releaseKey();
 
         if (active < 0)
@@ -499,6 +790,23 @@ namespace stella::gui
 
     void Editor::mouseWheel (int x, int y, float notches)
     {
+       #if STELLA_ELEMENTS
+        if (elements != nullptr)
+        {
+            if (const auto owner = elements->popupAt (x, y); owner >= 0)
+            {
+                elements->mouse (owner, true, ui::ElementRuntime::wheel, x, y, false, false, notches);
+                return;
+            }
+
+            if (const auto index = widgetAt (x, y); index >= 0 && widgets[index].kind == Kind::custom)
+            {
+                elements->mouse (index, false, ui::ElementRuntime::wheel, x, y, false, false, notches);
+                return;
+            }
+        }
+       #endif
+
         const auto index = widgetAt (x, y);
 
         if (index < 0 || (widgets[index].kind != Kind::knob && widgets[index].kind != Kind::slider))
@@ -512,6 +820,118 @@ namespace stella::gui
         host.beginEdit (param);
         host.setValue (param, valueAt (param, proportionOf (param) + notches * 0.04f));
         host.endEdit (param);
+    }
+
+    void Editor::mouseMove (int x, int y)
+    {
+       #if STELLA_ELEMENTS
+        if (elements == nullptr)
+            return;
+
+        // The element (or popup) under the mouse hears it move; the one it left, that it left.
+        auto index = elements->popupAt (x, y);
+        const bool popup = index >= 0;
+
+        if (! popup)
+        {
+            index = widgetAt (x, y);
+
+            if (index >= 0 && widgets[index].kind != Kind::custom)
+                index = -1;
+        }
+
+        if (index != elements->hovered || popup != elements->hoveredPopup)
+        {
+            if (elements->hovered >= 0)
+                elements->mouse (elements->hovered, elements->hoveredPopup, ui::ElementRuntime::exit, x, y, false);
+
+            elements->hovered = index;
+            elements->hoveredPopup = popup;
+        }
+
+        if (index >= 0)
+            elements->mouse (index, popup, ui::ElementRuntime::move, x, y, false);
+       #else
+        (void) x;
+        (void) y;
+       #endif
+    }
+
+    void Editor::mouseExit()
+    {
+       #if STELLA_ELEMENTS
+        if (elements != nullptr && elements->hovered >= 0)
+        {
+            elements->mouse (elements->hovered, elements->hoveredPopup, ui::ElementRuntime::exit, elements->lastX, elements->lastY, false);
+            elements->hovered = -1;
+        }
+       #endif
+    }
+
+    //==========================================================================
+    void Editor::blitPixels (std::uint32_t* pixels, const std::uint32_t* source, int x, int y, int w, int h) const
+    {
+        if (source == nullptr)
+            return;
+
+        for (int row = 0; row < h; ++row)
+        {
+            const auto ty = y + row;
+
+            if (ty < 0 || ty >= height)
+                continue;
+
+            for (int col = 0; col < w; ++col)
+            {
+                const auto tx = x + col;
+
+                if (tx >= 0 && tx < width)
+                    blend (pixels[(size_t) ty * (size_t) width + (size_t) tx], source[(size_t) row * (size_t) w + (size_t) col]);
+            }
+        }
+    }
+
+    void Editor::drawElement (std::uint32_t* pixels, int index)
+    {
+       #if STELLA_ELEMENTS
+        if (elements == nullptr)
+            return;
+
+        if (elements->runtime.needsPaint (index))
+            elements->runtime.render (index);
+
+        const auto& w = widgets[index];
+        blitPixels (pixels, elements->runtime.pixels (index, false), w.x, w.y, w.w, w.h);
+       #else
+        (void) pixels;
+        (void) index;
+       #endif
+    }
+
+    void Editor::drawPopups (std::uint32_t* pixels)
+    {
+       #if STELLA_ELEMENTS
+        if (elements == nullptr)
+            return;
+
+        for (int i = 0; i < numWidgets; ++i)
+        {
+            int x = 0, y = 0, w = 0, h = 0;
+
+            if (elements->popupArea (i, x, y, w, h))
+            {
+                // A soft shadow under it, as menus have.
+                Canvas canvas { pixels, width, height };
+
+                for (int s = 1; s <= 6; ++s)
+                    canvas.fillRect ((float) (x - s + 2), (float) (y - s + 4), (float) (x + w + s - 2), (float) (y + h + s), 0xff000000u, 0.045f);
+
+                blitPixels (pixels, elements->runtime.pixels (i, true), x, y, w, h);
+            }
+        }
+       #else
+        (void) pixels;
+       #endif
     }
 
     //==========================================================================
@@ -805,7 +1225,11 @@ namespace stella::gui
                 case Kind::filter:    drawCurve (pixels, w, b); break;
                 case Kind::xy:        drawXy (pixels, w, b); break;
                 case Kind::keyboard:  drawKeyboard (pixels, w, i); break;
+                case Kind::custom:    drawElement (pixels, i); break;
             }
         }
+
+        // Programmed elements' popups lie over everything.
+        drawPopups (pixels);
     }
 }

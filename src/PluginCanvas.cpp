@@ -5,6 +5,7 @@
 #include "PluginCanvas.h"
 #include "PluginCanvasMenu.h"
 #include "StellaLookAndFeel.h"
+#include "WasmElements.h"
 #include "stella_keys.h"
 
 namespace
@@ -17,7 +18,8 @@ namespace
 //==============================================================================
 bool PluginCanvas::isInteractive (const GuiWidget& w)
 {
-    return w.isControl() || w.type == GuiWidget::Type::xy || w.type == GuiWidget::Type::preset || w.type == GuiWidget::Type::keyboard;
+    return w.isControl() || w.type == GuiWidget::Type::xy || w.type == GuiWidget::Type::preset || w.type == GuiWidget::Type::keyboard
+        || w.type == GuiWidget::Type::custom;
 }
 
 juce::String PluginCanvas::typeDisplayName (GuiWidget::Type type)
@@ -40,6 +42,7 @@ juce::String PluginCanvas::typeDisplayName (GuiWidget::Type type)
         case GuiWidget::Type::preset:    return "Preset browser";
         case GuiWidget::Type::image:     return "Picture";
         case GuiWidget::Type::keyboard:  return "Keyboard";
+        case GuiWidget::Type::custom:    return "Programmed element";
     }
 
     return "Element";
@@ -65,6 +68,7 @@ juce::Rectangle<int> PluginCanvas::defaultBounds (GuiWidget::Type type, int x, i
         case GuiWidget::Type::preset:    return { x, y, 200, 28 };
         case GuiWidget::Type::image:     return { x, y, 160, 120 };
         case GuiWidget::Type::keyboard:  return { x, y, 600, 90 };
+        case GuiWidget::Type::custom:    return { x, y, 160, 32 };
     }
 
     return { x, y, 60, 60 };
@@ -118,6 +122,10 @@ PluginCanvas::~PluginCanvas()
 {
     *alive = false;
     stopTimer();
+
+    if (elements != nullptr)
+        elements->setHost (nullptr);
+
     pictureChooser = nullptr;
 }
 
@@ -155,6 +163,7 @@ void PluginCanvas::setLayout (const GuiLayout& newLayout)
     releaseKey();   // its keyboard may be gone, or elsewhere now
     layout = newLayout;
     meterLevels.clear();
+    syncElements();
 
     // Pictures that weren't there may be now.
     for (auto it = pictures.begin(); it != pictures.end();)
@@ -179,6 +188,8 @@ void PluginCanvas::setLayout (const GuiLayout& newLayout)
 void PluginCanvas::setDesignMode (bool shouldDesign)
 {
     releaseKey();
+    closeElementPopups();
+    hoveredElement = -1;
     design = shouldDesign;
 
     if (! design)
@@ -212,6 +223,7 @@ void PluginCanvas::setSources (const juce::StringArray& signals, const juce::Str
 
 void PluginCanvas::edited()
 {
+    syncElements();
     reportSources();
 
     if (onLayoutEdited != nullptr)
@@ -231,6 +243,18 @@ void PluginCanvas::reportSources()
         if ((w.type == GuiWidget::Type::meter || w.type == GuiWidget::Type::lamp) && w.source.isNotEmpty())
             levels.addIfNotAlreadyThere (w.source);
         else if (w.type == GuiWidget::Type::scope && w.source.isNotEmpty() && scopes.size() < 3)
+            scopes.addIfNotAlreadyThere (w.source);
+    }
+
+    // A programmed element's source: its level, and its samples while a scope slot is free.
+    for (const auto& w : layout.widgets)
+    {
+        if (w.type != GuiWidget::Type::custom || w.source.isEmpty())
+            continue;
+
+        levels.addIfNotAlreadyThere (w.source);
+
+        if (scopes.size() < 3)
             scopes.addIfNotAlreadyThere (w.source);
     }
 
@@ -377,7 +401,8 @@ int PluginCanvas::addElement (GuiWidget w, std::optional<juce::Point<float>> cen
             break;
 
         case GuiWidget::Type::preset:
-        case GuiWidget::Type::image:     break;
+        case GuiWidget::Type::image:
+        case GuiWidget::Type::custom:    break;
     }
 
     // Centred where it was dropped, or in the middle of what's showing; always inside the window.
@@ -732,6 +757,12 @@ void PluginCanvas::timerCallback()
     if (! isShowing())
         return;
 
+    // Each source is read once per frame: a peak is "the highest since the last read".
+    frameLevels.clear();
+
+    // Programmed elements that look different now are drawn again.
+    refreshElements (false);
+
     // Keyboards light up for the notes that sound: the mouse's, a MIDI keyboard's, the host's.
     if (isNoteDown != nullptr)
     {
@@ -761,9 +792,6 @@ void PluginCanvas::timerCallback()
     if (! live || readLevel == nullptr)
         return;
 
-    // Each source is read once per frame: a peak is "the highest since the last read".
-    frameLevels.clear();
-
     for (int i = 0; i < (int) layout.widgets.size(); ++i)
     {
         const auto& w = layout.widgets[(size_t) i];
@@ -772,12 +800,7 @@ void PluginCanvas::timerCallback()
             continue;
 
         const bool rms = w.type == GuiWidget::Type::meter && w.mode == "rms";
-        const auto key = w.source + (rms ? "|rms" : "|peak");
-
-        if (frameLevels.find (key) == frameLevels.end())
-            frameLevels[key] = readLevel (w.source, rms);
-
-        const auto level = frameLevels[key];
+        const auto level = frameLevel (w.source, rms);
         auto& shown = meterLevels[i];
 
         // Meters on a signal fall back smoothly; displays and lamps show the value as it is.
@@ -1072,6 +1095,15 @@ void PluginCanvas::drawWidget (juce::Graphics& g, int index, Part part, float ov
         return;
     }
 
+    // A programmed element draws itself, all of it moving (Export leaves it to the plugin).
+    if (w.type == GuiWidget::Type::custom)
+    {
+        if (part != Part::still)
+            drawElement (g, w, index);
+
+        return;
+    }
+
     const bool still = part != Part::moving, moving = part != Part::still;
     const auto* p = paramFor (w);
     const auto value = p != nullptr ? currentValue (*p) : 0.0f;
@@ -1305,6 +1337,7 @@ void PluginCanvas::drawWidget (juce::Graphics& g, int index, Part part, float ov
         case GuiWidget::Type::envelope:
         case GuiWidget::Type::filter:
         case GuiWidget::Type::keyboard:
+        case GuiWidget::Type::custom:
             break;   // drawn above
     }
 }
@@ -1479,7 +1512,8 @@ juce::Rectangle<int> PluginCanvas::movingAreaOf (const GuiWidget& w) const
         case GuiWidget::Type::filter:    return w.bounds.withTrimmedBottom (w.label.isNotEmpty() ? GuiLayout::captionHeight : 0);
         case GuiWidget::Type::xy:        return w.bounds.withTrimmedBottom (GuiLayout::captionHeight);
         case GuiWidget::Type::preset:
-        case GuiWidget::Type::keyboard:  return w.bounds;
+        case GuiWidget::Type::keyboard:
+        case GuiWidget::Type::custom:    return w.bounds;
         case GuiWidget::Type::label:
         case GuiWidget::Type::group:
         case GuiWidget::Type::shape:
@@ -1640,7 +1674,8 @@ PluginCanvas::Bake PluginCanvas::bake()
             case GuiWidget::Type::xy:
             case GuiWidget::Type::shape:
             case GuiWidget::Type::image:
-            case GuiWidget::Type::keyboard:  break;   // its keys are in the background; the plugin draws the ones that are down
+            case GuiWidget::Type::keyboard:           // its keys are in the background; the plugin draws the ones that are down
+            case GuiWidget::Type::custom:    break;   // the plugin draws it itself
         }
 
         if (frames == 0)
@@ -1702,6 +1737,10 @@ void PluginCanvas::paint (juce::Graphics& g)
 
         for (int i = 0; i < (int) layout.widgets.size(); ++i)
             drawWidget (g, i);
+
+        // Programmed elements' popups lie over everything.
+        if (! design)
+            drawElementPopups (g);
     }
 
     g.setColour (design ? (panelSelected ? Theme::accent : Theme::accent.withAlpha (0.55f)) : Theme::outline);

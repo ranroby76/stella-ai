@@ -119,6 +119,8 @@ MainComponent::MainComponent (Settings& s)
     engine.onDeviceChanged = [this] { updateDeviceSummary(); preview.deviceChanged(); };
 
     preview.onChanged = [this] { previewChanged(); };
+    preview.onElements = [this] (std::shared_ptr<WasmElements> elements) { workspace.setElements (std::move (elements)); };
+    workspace.onElementsFailed = [this] (const juce::String& why) { preview.setElementsProblem (why); };
     workspace.onBuildRequested = [this] { buildPlugin(); };
     workspace.onShowLogRequested = [this] { showBuildLog(); };
     workspace.onExportRequested = [this] { exportPlugin(); };
@@ -252,6 +254,7 @@ MainComponent::~MainComponent()
     project.onChanged = nullptr;
     engine.onDeviceChanged = nullptr;
     preview.onChanged = nullptr;
+    preview.onElements = nullptr;
     logWindow = nullptr;
     server.onStateChanged = nullptr;
     ai.onChanged = nullptr;
@@ -891,17 +894,20 @@ void MainComponent::exportPlugin()
     const auto destination = PluginExporter::defaultExportFolder (info.name);
 
     // The GUI is baked here, on the message thread; the compiling happens in the background.
-    std::map<juce::String, juce::String> units;
+    std::map<juce::String, juce::String> units, names;
 
     for (const auto& p : preview.getParameters())
+    {
         units[p.id] = p.unit;
+        names[p.id] = p.name;
+    }
 
     juce::StringArray displays;
 
     for (const auto& d : preview.getDisplays())
         displays.add (d.id);
 
-    const auto gui = std::make_shared<PluginExporter::Gui> (PluginExporter::prepareGui (workspace.getLayout(), workspace.bakeGui(), units, displays,
+    const auto gui = std::make_shared<PluginExporter::Gui> (PluginExporter::prepareGui (workspace.getLayout(), workspace.bakeGui(), units, names, displays,
                                                                                          presets.presets));
 
     juce::Thread::launch ([safeThis = juce::Component::SafePointer<MainComponent> (this), folder, info, destination, gui]

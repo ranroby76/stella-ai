@@ -2,6 +2,7 @@
 
 #include "LivePreview.h"
 #include "WasmCompiler.h"
+#include "WasmElements.h"
 
 #include <map>
 
@@ -45,17 +46,32 @@ void LivePreview::build (const juce::File& projectFolder, const juce::String& pr
         auto holder = std::make_shared<std::unique_ptr<WasmPlugin>>();
         std::string error;
 
-        if (compiled.ok)
+        // The GUI's programmed elements: built and started once the sound has built.
+        WasmCompiler::Result elementsCompiled;
+        std::shared_ptr<WasmElements> elements;
+        std::string elementsError;
+
+        auto loadFile = [] (const juce::File& file)
         {
             juce::MemoryBlock data;
-            compiled.wasm.loadFileAsData (data);
-            bytes.assign (static_cast<const std::uint8_t*> (data.getData()),
-                          static_cast<const std::uint8_t*> (data.getData()) + data.getSize());
+            file.loadFileAsData (data);
+            return std::vector<std::uint8_t> (static_cast<const std::uint8_t*> (data.getData()),
+                                              static_cast<const std::uint8_t*> (data.getData()) + data.getSize());
+        };
 
+        if (compiled.ok)
+        {
+            bytes = loadFile (compiled.wasm);
             *holder = WasmPlugin::load (bytes, rate, block, error);
+
+            elementsCompiled = WasmCompiler::compileElements (projectFolder, projectId);
+
+            if (elementsCompiled.ok && elementsCompiled.wasm != juce::File())
+                elements = WasmElements::load (loadFile (elementsCompiled.wasm), elementsError);
         }
 
-        juce::MessageManager::callAsync ([this, stillAlive, thisBuild, compiled, bytes, holder, error, rate, done]
+        juce::MessageManager::callAsync ([this, stillAlive, thisBuild, compiled, bytes, holder, error, rate, done,
+                                          elementsCompiled, elements, elementsError]
         {
             if (! stillAlive->load())
                 return;
@@ -68,10 +84,22 @@ void LivePreview::build (const juce::File& projectFolder, const juce::String& pr
                 return;
             }
 
+            const bool hasElements = elementsCompiled.wasm != juce::File();
+
             if (! compiled.ok)
             {
                 log = compiled.log;
                 setState (State::failed, "Build failed: see the log");
+            }
+            else if (! elementsCompiled.ok)
+            {
+                log = "The GUI's programmed elements didn't build:\n" + elementsCompiled.log;
+                setState (State::failed, "The GUI's elements didn't build: see the log");
+            }
+            else if (hasElements && elements == nullptr)
+            {
+                log = "The GUI's programmed elements built, but didn't start: " + juce::String (elementsError);
+                setState (State::failed, "The GUI's elements didn't start: see the log");
             }
             else if (*holder == nullptr)
             {
@@ -83,8 +111,18 @@ void LivePreview::build (const juce::File& projectFolder, const juce::String& pr
                 wasm = bytes;
                 loadedRate = rate;
                 log = compiled.log;
+
+                if (elementsCompiled.log.isNotEmpty())
+                    log << (log.isNotEmpty() ? "\n\n" : "") << "GUI elements:\n" << elementsCompiled.log;
+
                 install (std::move (*holder));
-                setState (State::playing, juce::String::fromUTF8 ("Playing \xc2\xb7 built in ") + juce::String (compiled.seconds, 1) + " s");
+                elementsProblem.clear();
+
+                if (onElements != nullptr)
+                    onElements (elements);
+
+                setState (State::playing, juce::String::fromUTF8 ("Playing \xc2\xb7 built in ")
+                                              + juce::String (compiled.seconds + elementsCompiled.seconds, 1) + " s");
             }
 
             if (done != nullptr)
@@ -134,6 +172,12 @@ void LivePreview::unload()
 {
     ++generation;
     audio.setPlugin (nullptr);
+
+    elementsProblem.clear();
+
+    if (onElements != nullptr)
+        onElements (nullptr);
+
     wasm.clear();
     log.clear();
     params.clear();

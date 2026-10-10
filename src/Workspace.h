@@ -70,6 +70,9 @@ public:
     void setLayout (const GuiLayout& layout);
     const GuiLayout& getLayout() const noexcept   { return pluginView.canvas.getLayout(); }
 
+    /** The GUI's programmed elements from the latest build (nullptr: none). */
+    void setElements (std::shared_ptr<WasmElements> elements)   { pluginView.canvas.setElements (std::move (elements)); }
+
     /** The presets row: names, the chosen one (-1: none), and which of A and B is on. */
     void setPresets (const juce::StringArray& names, int selected);
     void setAbSlot (int slot);
@@ -98,6 +101,7 @@ public:
     std::function<void (int widgetIndex, const juce::String& instruction)> onAskAiAboutGui;
 
     std::function<void (int presetIndex)> onPresetChosen;
+    std::function<void (const juce::String& why)> onElementsFailed;   // the GUI's programmed elements stopped
     std::function<void()> onSavePreset;
     std::function<void (int presetIndex)> onDeletePreset;
     std::function<void (int slot)> onAbChosen;       // 0: A, 1: B
