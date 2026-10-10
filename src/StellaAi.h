@@ -78,6 +78,7 @@ private:
     juce::String runPlan (const juce::var& input);
     juce::String planText() const;      // the checklist entry: "✓ done", "▸ now", "○ to do" lines
     juce::String planContext() const;   // for the project's description while a plan is unfinished
+    juce::String modeContext() const;   // what this mode may do, so a conversation hands code over to the builder
     void showPlan();
     void clearPlan();
 

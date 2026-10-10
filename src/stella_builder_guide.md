@@ -116,7 +116,7 @@ An effect reads its audio from `inputs` (named like `outputs`, e.g. `{ "in L", "
 Module ids use letters, digits and _ only. Ports are named by the module type's input and output names.
 
 ## The GUI: gui/layout.json
-The studio draws the plugin's window from this file. Changes show at once, with no build, and changes made of toolbox elements need no code. Two tools change it:
+The studio draws the plugin's window from this file. Changes show at once, with no build, and changes made of toolbox elements need no code. When the user asks for an element the toolbox doesn't have (a drop-down list, droplist or combo box, a menu, tabs, a step sequencer...), program it (see "Programmed GUI elements"); never make do with a `selector` or another toolbox type, and never tell the user it can't be done. Two tools change it:
 - `edit_layout` changes part of it and keeps everything else as the user arranged it: remove, change or add elements, resize the window. It names elements by their index in the project's "GUI elements" list. Use it for every change to an existing window.
 - `set_layout` replaces the whole file: for the first design of a new plugin, or when the user asks for a new design.
 ```json

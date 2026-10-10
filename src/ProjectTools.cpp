@@ -239,7 +239,8 @@ juce::var ProjectTools::getDefinitions (bool builder) const
         tools.add (tool ("set_layout",
                          "Replaces the whole GUI (gui/layout.json), for a new design. It shows at once; no build needed. "
                          "To change part of it, use edit_layout instead. If you do replace it, read gui/layout.json just before, "
-                         "to keep what the user arranged by hand.",
+                         "to keep what the user arranged by hand. Toolbox types and the project's programmed elements only: an element "
+                         "the toolbox doesn't have (a drop-down list...) is programmed first, never replaced by a toolbox type.",
                          props, { "layout" }));
     }
 
@@ -259,7 +260,9 @@ juce::var ProjectTools::getDefinitions (bool builder) const
                          "Changes part of the plugin's GUI and keeps everything else exactly as it is: removes, changes or adds elements, "
                          "or resizes the window. Elements are named by their index in the project's \"GUI elements\" list; one call's "
                          "changes and removals all use that list, then its additions go in. Put all of a step's GUI edits in one call: the "
-                         "indexes change after it. The window grows by itself to fit what's added or moved. It shows at once; no build needed.",
+                         "indexes change after it. The window grows by itself to fit what's added or moved. It shows at once; no build needed. "
+                         "Toolbox types and the project's programmed elements only: an element the toolbox doesn't have (a drop-down list...) "
+                         "is programmed first, never replaced by a toolbox type.",
                          props, {}));
     }
 
