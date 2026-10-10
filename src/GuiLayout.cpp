@@ -67,6 +67,16 @@ juce::String GuiLayout::typeName (GuiWidget::Type type)
     return "knob";
 }
 
+juce::String GuiLayout::builtInElementFor (const juce::String& typeName)
+{
+    const auto n = typeName.trim().toLowerCase().removeCharacters (" -_");
+
+    if (n == "dropdown" || n == "droplist" || n == "dropdownlist" || n == "combobox" || n == "combo" || n == "popupmenu")
+        return "DropDown";
+
+    return {};
+}
+
 GuiWidget::Type GuiLayout::typeFromName (const juce::String& name)
 {
     const auto n = name.trim().toLowerCase();
@@ -238,7 +248,7 @@ GuiWidget GuiLayout::widgetFromVar (const juce::var& item)
         w.element = item.getProperty ("element", {}).toString().trim();
 
         if (w.element.isEmpty() && ! typeText.equalsIgnoreCase ("custom") && ! typeText.equalsIgnoreCase ("element"))
-            w.element = typeText;
+            w.element = builtInElementFor (typeText).isNotEmpty() ? builtInElementFor (typeText) : typeText;
 
         if (auto* settings = item.getProperty ("settings", {}).getDynamicObject())
             for (const auto& setting : settings->getProperties())
@@ -309,10 +319,19 @@ GuiWidget GuiLayout::widgetFromVar (const juce::var& item)
 juce::var GuiLayout::widgetToVar (const GuiWidget& w)
 {
     auto item = object();
-    set (item, "type", typeName (w.type));
 
-    if (w.type == GuiWidget::Type::custom)
-        set (item, "element", w.element);
+    // The toolbox's drop-down list is a custom element the studio makes: "type": "dropdown".
+    if (w.type == GuiWidget::Type::custom && w.element == builtInElementFor ("dropdown"))
+    {
+        set (item, "type", "dropdown");
+    }
+    else
+    {
+        set (item, "type", typeName (w.type));
+
+        if (w.type == GuiWidget::Type::custom)
+            set (item, "element", w.element);
+    }
 
     set (item, "x", w.bounds.getX());
     set (item, "y", w.bounds.getY());

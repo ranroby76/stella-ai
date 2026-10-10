@@ -921,6 +921,7 @@ namespace stella::ui
         {
             std::string name, description;
             Element* (*make)();
+            bool builtIn;
         };
 
         std::vector<TypeInfo>& registry()
@@ -936,20 +937,39 @@ namespace stella::ui
         }
     }
 
-    Registrar::Registrar (const char* name, const char* description, Element* (*make)())
+    namespace
     {
-        const std::string n = name != nullptr ? name : "";
-
-        for (const auto& t : registry())
+        void addType (const char* name, const char* description, Element* (*make)(), bool builtIn)
         {
-            if (t.name == n)
+            const std::string n = name != nullptr ? name : "";
+            const std::string d = description != nullptr ? description : "";
+
+            for (auto& t : registry())
             {
-                registryProblem() += "Two elements are called " + n + ": give each its own name. ";
+                if (t.name != n)
+                    continue;
+
+                // A project's own element of a built-in's name takes its place.
+                if (t.builtIn && ! builtIn)
+                    t = { n, d, make, false };
+                else if (! t.builtIn && ! builtIn)
+                    registryProblem() += "Two elements are called " + n + ": give each its own name. ";
+
                 return;
             }
-        }
 
-        registry().push_back ({ n, description != nullptr ? description : "", make });
+            registry().push_back ({ n, d, make, builtIn });
+        }
+    }
+
+    Registrar::Registrar (const char* name, const char* description, Element* (*make)())
+    {
+        addType (name, description, make, false);
+    }
+
+    BuiltInRegistrar::BuiltInRegistrar (const char* name, const char* description, Element* (*make)())
+    {
+        addType (name, description, make, true);
     }
 
     //==========================================================================

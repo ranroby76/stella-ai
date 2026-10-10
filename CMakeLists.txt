@@ -74,6 +74,7 @@ juce_add_binary_data(StellaRuntimeData
         src/stella_element_host.h
         src/stella_elements.h
         src/stella_elements.cpp
+        src/stella_builtin_elements.cpp
         src/stb_truetype.h
         fonts/inter_regular.ttf
         fonts/inter_bold.ttf

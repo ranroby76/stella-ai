@@ -400,9 +400,18 @@ int PluginCanvas::addElement (GuiWidget w, std::optional<juce::Point<float>> cen
             stella::keys::normalise (w.lowNote, w.highNote);
             break;
 
+        case GuiWidget::Type::custom:
+            // Like a selector: the first parameter not shown yet, named after it.
+            if (w.param.isEmpty())
+                w.param = unusedParam ({});
+
+            if (w.label.isEmpty())
+                if (const auto* p = paramById (w.param))
+                    w.label = p->name;
+            break;
+
         case GuiWidget::Type::preset:
-        case GuiWidget::Type::image:
-        case GuiWidget::Type::custom:    break;
+        case GuiWidget::Type::image:     break;
     }
 
     // Centred where it was dropped, or in the middle of what's showing; always inside the window.

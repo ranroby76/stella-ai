@@ -67,9 +67,10 @@ namespace
     juce::String elementLine (int index, const GuiWidget& w, const juce::StringArray& paramIds)
     {
         juce::String line;
-        line << index << ": " << GuiLayout::typeName (w.type);
+        const bool dropdown = w.type == GuiWidget::Type::custom && w.element == GuiLayout::builtInElementFor ("dropdown");
+        line << index << ": " << (dropdown ? juce::String ("dropdown") : GuiLayout::typeName (w.type));
 
-        if (w.type == GuiWidget::Type::custom)
+        if (w.type == GuiWidget::Type::custom && ! dropdown)
             line << " element=" << (w.element.isNotEmpty() ? w.element : juce::String ("(none)"));
 
         if (w.label.isNotEmpty())
@@ -239,8 +240,8 @@ juce::var ProjectTools::getDefinitions (bool builder) const
         tools.add (tool ("set_layout",
                          "Replaces the whole GUI (gui/layout.json), for a new design. It shows at once; no build needed. "
                          "To change part of it, use edit_layout instead. If you do replace it, read gui/layout.json just before, "
-                         "to keep what the user arranged by hand. Toolbox types and the project's programmed elements only: an element "
-                         "the toolbox doesn't have (a drop-down list...) is programmed first, never replaced by a toolbox type.",
+                         "to keep what the user arranged by hand. Toolbox types (a drop-down list is \"dropdown\") and the project's "
+                         "programmed elements only: an element the toolbox doesn't have is programmed first, never replaced by a toolbox type.",
                          props, { "layout" }));
     }
 
@@ -250,9 +251,10 @@ juce::var ProjectTools::getDefinitions (bool builder) const
         props.getDynamicObject()->setProperty ("change", listProperty ("object", "Elements to change: { \"index\": 3, then the fields to set, named as in layout.json, "
                                                                                   "e.g. \"x\": 40, \"label\": \"Cutoff\", \"style\": \"Black knob\" }. Fields not given stay as they are."));
         props.getDynamicObject()->setProperty ("add", listProperty ("object", "New elements, written as in layout.json, e.g. { \"type\": \"keyboard\", \"x\": 20, \"y\": 330, "
-                                                                               "\"w\": 720, \"h\": 80, \"low\": \"C2\", \"high\": \"C6\" }, or a programmed one: "
-                                                                               "{ \"type\": \"custom\", \"element\": \"DropDown\", \"param\": \"filter.mode\", ... }. They go in front "
-                                                                               "of the others; \"at\": 0 puts one at the back."));
+                                                                               "\"w\": 720, \"h\": 80, \"low\": \"C2\", \"high\": \"C6\" }, a drop-down list "
+                                                                               "{ \"type\": \"dropdown\", \"param\": \"filter.type\", \"options\": [...], ... }, or a programmed one "
+                                                                               "{ \"type\": \"custom\", \"element\": \"<Name>\", ... }. They go in front of the others; "
+                                                                               "\"at\": 0 puts one at the back."));
         props.getDynamicObject()->setProperty ("width", property ("integer", "The window's new width."));
         props.getDynamicObject()->setProperty ("height", property ("integer", "The window's new height."));
         props.getDynamicObject()->setProperty ("background", property ("object", "The window's colours: { \"top\": \"#FF2B2B30\", \"bottom\": \"#FF17171A\" }."));
@@ -261,8 +263,8 @@ juce::var ProjectTools::getDefinitions (bool builder) const
                          "or resizes the window. Elements are named by their index in the project's \"GUI elements\" list; one call's "
                          "changes and removals all use that list, then its additions go in. Put all of a step's GUI edits in one call: the "
                          "indexes change after it. The window grows by itself to fit what's added or moved. It shows at once; no build needed. "
-                         "Toolbox types and the project's programmed elements only: an element the toolbox doesn't have (a drop-down list...) "
-                         "is programmed first, never replaced by a toolbox type.",
+                         "Toolbox types (a drop-down list is \"dropdown\") and the project's programmed elements only: an element the "
+                         "toolbox doesn't have is programmed first, never replaced by a toolbox type.",
                          props, {}));
     }
 
@@ -721,11 +723,24 @@ juce::String ProjectTools::checkLayout (const GuiLayout& layout, const GuiLayout
     for (const auto& e : WasmCompiler::findElements (project.getFolder()))
         programmed.add (e.name);
 
+    for (const auto& e : WasmCompiler::builtInElements())
+        programmed.add (e.name);
+
     for (const auto& w : layout.widgets)
         if (w.type == GuiWidget::Type::custom && ! programmed.contains (w.element))
             unprogrammed.addIfNotAlreadyThere (w.element.isNotEmpty() ? w.element : juce::String ("(no element name)"));
 
-    return (unprogrammed.isEmpty() ? juce::String()
+    // A selector is a row of buttons: with many positions they're too small to read.
+    juce::StringArray crowded;
+
+    for (const auto& w : layout.widgets)
+        if (w.type == GuiWidget::Type::selector && w.options.size() > 8)
+            crowded.addIfNotAlreadyThere (w.label.isNotEmpty() ? w.label : w.param);
+
+    return (crowded.isEmpty() ? juce::String()
+                              : "\nThese selectors have too many buttons to read (" + crowded.joinIntoString (", ")
+                                    + "): make each a \"dropdown\" instead.")
+         + (unprogrammed.isEmpty() ? juce::String()
                                    : "\nThese elements aren't toolbox types and aren't programmed: " + unprogrammed.joinIntoString (", ")
                                          + ". Use a toolbox type, or program each one (elements/<Name>.cpp ending with STELLA_ELEMENT (<Name>, ...), then build).")
          + (unbound.isEmpty() || preview.getParameters().isEmpty() ? juce::String()

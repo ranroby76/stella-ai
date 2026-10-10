@@ -461,6 +461,9 @@ PluginExporter::Result PluginExporter::exportPlugins (const juce::File& projectF
         for (const auto& element : WasmCompiler::findElements (projectFolder))
             defined.add (element.name);
 
+        for (const auto& element : WasmCompiler::builtInElements())
+            defined.add (element.name);
+
         for (const auto& type : gui.elementTypes)
             if (! defined.contains (type))
                 missing.add (type.isNotEmpty() ? type : juce::String ("(no name)"));
@@ -523,6 +526,7 @@ PluginExporter::Result PluginExporter::exportPlugins (const juce::File& projectF
         if (withElements)
         {
             args.add (work.getChildFile ("stella_elements.cpp").getFullPathName());
+            args.add (work.getChildFile ("stella_builtin_elements.cpp").getFullPathName());
 
             for (const auto& file : elementFiles)
                 args.add (file.getFullPathName());

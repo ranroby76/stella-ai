@@ -300,6 +300,25 @@ void Toolbox::drawIcon (juce::Graphics& g, juce::Rectangle<float> area, const ju
         return;
     }
 
+    if (icon == "dropdown")
+    {
+        // A box with the chosen option and the arrow that opens the list.
+        const auto field = box.withSizeKeepingCentre (s, s * 0.42f);
+        g.setColour (juce::Colours::black.withAlpha (0.55f));
+        g.fillRoundedRectangle (field, 2.5f);
+        g.setColour (juce::Colours::white.withAlpha (0.25f));
+        g.drawRoundedRectangle (field, 2.5f, 1.0f);
+        g.setColour (juce::Colours::white.withAlpha (0.6f));
+        g.fillRect (field.withTrimmedLeft (field.getWidth() * 0.14f).withWidth (field.getWidth() * 0.42f).withSizeKeepingCentre (field.getWidth() * 0.42f, 1.5f));
+
+        juce::Path arrow;
+        const auto ax = field.getRight() - field.getHeight() * 0.55f, ay = field.getCentreY(), r = field.getHeight() * 0.2f;
+        arrow.addTriangle (ax - r, ay - r * 0.5f, ax + r, ay - r * 0.5f, ax, ay + r * 0.7f);
+        g.setColour (accent);
+        g.fillPath (arrow);
+        return;
+    }
+
     if (icon == "xy")
     {
         const auto pad = box.reduced (2.0f);

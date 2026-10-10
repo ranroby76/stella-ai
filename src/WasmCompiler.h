@@ -54,8 +54,11 @@ public:
 
     static juce::Array<ElementSource> findElements (const juce::File& projectFolder);
 
-    /** Compiles the elements folder's .cpp files into the GUI's module. With no element
-        files, ok with no wasm. */
+    /** The toolbox's own elements made the same way (stella_builtin_elements.cpp): the drop-down
+        list. Every build has them; a project's element of the same name replaces one. */
+    static juce::Array<ElementSource> builtInElements();
+
+    /** Compiles the elements folder's .cpp files, with the toolbox's own, into the GUI's module. */
     static Result compileElements (const juce::File& projectFolder, const juce::String& projectId);
 
     /** Writes the elements' runtime (stella_element_api.h and the rest, and the font as

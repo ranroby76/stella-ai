@@ -140,6 +140,10 @@ public:
         the programmed element's own name). An empty name is a knob. */
     static GuiWidget::Type typeFromName (const juce::String& name);
 
+    /** The toolbox's own element a type name means ("dropdown": "DropDown"); empty if none.
+        They're custom elements made by the studio (stella_builtin_elements.cpp). */
+    static juce::String builtInElementFor (const juce::String& typeName);
+
     /** Keyboards: a MIDI note's name ("C4" is middle C, 60), and a note from JSON: a name
         ("F#2", "Bb3") or a number. */
     static juce::String noteName (int note);

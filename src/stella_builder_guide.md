@@ -116,7 +116,7 @@ An effect reads its audio from `inputs` (named like `outputs`, e.g. `{ "in L", "
 Module ids use letters, digits and _ only. Ports are named by the module type's input and output names.
 
 ## The GUI: gui/layout.json
-The studio draws the plugin's window from this file. Changes show at once, with no build, and changes made of toolbox elements need no code. When the user asks for an element the toolbox doesn't have (a drop-down list, droplist or combo box, a menu, tabs, a step sequencer...), program it (see "Programmed GUI elements"); never make do with a `selector` or another toolbox type, and never tell the user it can't be done. Two tools change it:
+The studio draws the plugin's window from this file. Changes show at once, with no build, and changes made of toolbox elements need no code. A drop-down list (droplist, combo box) is the toolbox's `dropdown`. When the user asks for an element the toolbox doesn't have (a menu, tabs, a step sequencer, a rotary switch...), program it (see "Programmed GUI elements"); never make do with a `selector` or another toolbox type, and never tell the user it can't be done. A request about the panel changes the panel: keep the plugin's parameters and sound as they are (one control per parameter: two filters keep a type list each) unless the user asks to change what they do. Two tools change it:
 - `edit_layout` changes part of it and keeps everything else as the user arranged it: remove, change or add elements, resize the window. It names elements by their index in the project's "GUI elements" list. Use it for every change to an existing window.
 - `set_layout` replaces the whole file: for the first design of a new plugin, or when the user asks for a new design.
 ```json
@@ -131,7 +131,7 @@ The studio draws the plugin's window from this file. Changes show at once, with 
     { "type": "selector", "param": "osc.wave", "x": 500, "y": 80, "w": 200, "h": 48, "label": "Wave", "options": ["Saw", "Square", "Tri"] } ] }
 ```
 - Coordinates are pixels in the plugin window. A knob's `size` is its diameter, and its caption takes 20 px under it; for other controls `h` includes the 20 px caption.
-- Types (the toolbox): `knob`, `slider` (vertical, or `"orientation": "horizontal"`), `switch` (on/off), `selector` (a row of buttons, one per position of a 0..N-1 parameter), `label`, `group` (a titled frame drawn under the controls), and the ones below. Anything else is a `custom` element you program (next section).
+- Types (the toolbox): `knob`, `slider` (vertical, or `"orientation": "horizontal"`), `switch` (on/off), `selector` (a row of buttons, one per position of a 0..N-1 parameter: for up to about 6 short options), `dropdown` (a drop-down list for a 0..N-1 parameter, any number of options, long lists open in columns: `{ "type": "dropdown", "param": "filter.type", "label": "Type", "options": ["LP 12", "HP 12", "BP"], "x": 40, "y": 200, "w": 150, "h": 48 }`; `h` includes an 18 px caption when there's a label), `label`, `group` (a titled frame drawn under the controls), and the ones below. Anything else is a `custom` element you program (next section).
 - Live widgets watch a `"source"`: a signal (`"plugin.out L"`, `"filter.out"`, `"plugin.in L"` for effects) or a module display (`"lfo.position"`). `meter` (`"mode"`: `"peak"` or `"rms"`; signals in dB, displays 0..1), `lamp` (lights from `"threshold"`, default 0.5), `scope` (a signal's waveform; up to 3).
 - Curves follow parameters through `"params"`: `envelope` with `{ "attack", "decay", "sustain", "release" }`, `filter` with `{ "cutoff", "resonance" }` and `"mode"` `"lowpass"`, `"lowpass24"`, `"highpass"`, `"highpass24"` or `"bandpass"`.
 - `xy`: an XY pad moving two parameters, `"params": { "x": "<id>", "y": "<id>" }`.
@@ -146,17 +146,17 @@ The studio draws the plugin's window from this file. Changes show at once, with 
 - The user reshapes the GUI by hand in the Edit UI tab: keep their arrangement. Never tell the user to change the GUI by hand for something `edit_layout` can do; do it yourself.
 
 ## Programmed GUI elements
-Look in the toolbox first: when a type above does what's asked, use it. When none does (a drop-down list, a step sequencer, a rotary switch, a custom meter, tabs, a waveform editor...), program the element yourself:
+Look in the toolbox first: when a type above does what's asked, use it. When none does (a step sequencer, a rotary switch, a custom meter, tabs, a menu, a waveform editor...), program the element yourself:
 - Write `elements/<Name>.cpp` with `write_file`: a class derived from `stella::ui::Element`, written against `stella_element_api.h` (at the end of this guide), ending with `STELLA_ELEMENT (<Name>, "what it is and how to bind it")`. The class name is the element's name.
 - Then `build`: it compiles with the plugin and its errors come back like a module's. Then place it with `edit_layout` (or `set_layout`): `{ "type": "custom", "element": "<Name>", "x", "y", "w", "h" }` plus what it reads: `"param"`, `"params"` (by role), `"label"`, `"options"`, `"color"`, `"source"`, `"settings"`. It shows at once in the studio and goes into the exported plugin as it is.
 - The project's "Programmed elements" list shows the ones it has: use them again rather than writing new ones. To change one, rewrite its file and build.
 - Make it look as good as the rest of the window: anti-aliased shapes, rounded corners, the window's colours, 12 to 14 px text, a hover state for what can be clicked. Draw it to fit `width()` x `height()`, so it can be resized.
-- Its values are parameters, as for any control: bind it with `"param"` and set values with `setValue` (whole numbers for positions). A drop-down needs a 0..N-1 parameter and `"options"` naming the positions.
-- A popup (a drop-down's list, a menu) is drawn over the whole window with `openPopup`; a click outside closes it.
+- Its values are parameters, as for any control: bind it with `"param"` and set values with `setValue` (whole numbers for positions; between `beginEdit` and `endEdit` for a drag).
+- A popup (a menu, a list) is drawn over the whole window: `openPopup (x, y, w, h)` from a mouse function, then `paintPopup` and the `popupMouse...` functions get it in its own pixels; a click outside closes it.
 - Only drawing, the mouse and the element's own values: no files, threads, network or allocation in `paint()`. Keep each element to one file of a few hundred lines.
 - In a conversation without `write_file`, hand over with `start_building` to program an element.
 
-A complete element, `elements/DropDown.cpp`:
+A complete element, `elements/RotarySwitch.cpp`:
 ```cpp
 #include "stella_element_api.h"
 
@@ -165,94 +165,92 @@ A complete element, `elements/DropDown.cpp`:
 
 using namespace stella::ui;
 
-class DropDown : public Element
+// A rotary switch: a knob that clicks between the positions of a 0..N-1 parameter, each
+// named around it. Drag up or down, or use the wheel, to turn it; click a name to jump to it.
+class RotarySwitch : public Element
 {
 public:
     void paint (Canvas& g) override
     {
         const auto accent = colour (0xffe5484d);
-        const auto top = captionHeight();
-
-        if (top > 0.0f)
-            g.drawText (label(), 0, 0, (float) width(), top, 12.5f, 0xffd8d4ca, Align::left);
-
-        const float x = 0.5f, y = top + 0.5f, w = (float) width() - 1.0f, h = (float) height() - top - 1.0f;
-        g.fillRoundedRect (x, y, w, h, 4.0f, hovering || isPopupOpen() ? 0xff2c2c33 : 0xff1d1d21);
-        g.drawRoundedRect (x, y, w, h, 4.0f, 1.0f, isPopupOpen() ? accent : 0x38ffffff);
-        g.drawText (optionText (current()), x + 10.0f, y, w - 34.0f, h, 13.0f, 0xffeeeeee, Align::left);
-
-        const float ax = x + w - 15.0f, ay = y + h * 0.5f;   // the arrow
-        g.fillTriangle (ax - 5.0f, ay - 2.5f, ax + 5.0f, ay - 2.5f, ax, ay + 3.5f, accent);
-    }
-
-    bool mouseDown (const Mouse&) override
-    {
-        hoverRow = current();
-        openPopup (0.0f, (float) height() + 2.0f, (float) width(), (float) count() * rowHeight + 8.0f);
-        return false;
-    }
-
-    void mouseMove (const Mouse&) override    { hovering = true; }
-    void mouseExit() override                 { hovering = false; }
-
-    void mouseWheel (const Mouse&, float notches) override
-    {
-        setValue (minimum() + (float) std::clamp (current() + (notches > 0.0f ? -1 : 1), 0, count() - 1));
-    }
-
-    void paintPopup (Canvas& g) override
-    {
-        const auto accent = colour (0xffe5484d);
-        const float w = (float) g.width(), h = (float) g.height();
-        g.fillRoundedRect (0.0f, 0.0f, w, h, 5.0f, 0xf0202024);
-        g.drawRoundedRect (0.0f, 0.0f, w, h, 5.0f, 1.0f, 0x40ffffff);
 
         for (int i = 0; i < count(); ++i)
         {
-            const float rowY = 4.0f + (float) i * rowHeight;
-
-            if (i == hoverRow)
-                g.fillRoundedRect (4.0f, rowY, w - 8.0f, rowHeight, 3.0f, withAlpha (accent, 0.3f));
-
-            if (i == current())
-                g.fillCircle (13.0f, rowY + rowHeight * 0.5f, 3.0f, accent);
-
-            g.drawText (optionText (i), 24.0f, rowY, w - 30.0f, rowHeight, 13.0f, i == current() ? 0xffffffff : 0xffcfcfcf, Align::left, i == current());
+            const auto a = angleOf (i);
+            const bool chosen = i == current();
+            g.drawLine (cx() + std::sin (a) * radius() * 1.12f, cy() - std::cos (a) * radius() * 1.12f,
+                        cx() + std::sin (a) * radius() * 1.32f, cy() - std::cos (a) * radius() * 1.32f, 1.5f, chosen ? accent : 0x60ffffff);
+            g.drawText (optionText (i), labelX (i) - 40.0f, labelY (i) - 8.0f, 80.0f, 16.0f, 11.0f,
+                        chosen ? 0xffffffff : 0xffa0a0a8, Align::centre, chosen);
         }
+
+        g.fillCircle (cx(), cy() + 2.0f, radius(), 0x80000000);                                   // its shadow
+        g.fillRadialGradient (cx(), cy(), radius(), 0xff4c4c55, 0xff1e1e23);
+        g.drawEllipse (cx() - radius(), cy() - radius(), radius() * 2.0f, radius() * 2.0f, 1.0f, dragging ? accent : 0x40ffffff);
+
+        const auto a = angleOf (current());
+        g.drawLine (cx() + std::sin (a) * radius() * 0.25f, cy() - std::cos (a) * radius() * 0.25f,
+                    cx() + std::sin (a) * radius() * 0.8f, cy() - std::cos (a) * radius() * 0.8f, 3.0f, accent);
     }
 
-    void popupMouseMove (const Mouse& m) override   { hoverRow = rowAt (m.y); }
-    void popupMouseExit() override                   { hoverRow = -1; }
-
-    void popupMouseDown (const Mouse& m) override
+    bool mouseDown (const Mouse& m) override
     {
-        if (const auto row = rowAt (m.y); row >= 0)
-            setValue (minimum() + (float) row);
+        // A click on a name jumps there; anywhere else starts turning it.
+        for (int i = 0; i < count(); ++i)
+        {
+            if (std::fabs (m.x - labelX (i)) < 30.0f && std::fabs (m.y - labelY (i)) < 9.0f)
+            {
+                setValue (minimum() + (float) i);
+                return false;
+            }
+        }
 
-        closePopup();
+        dragging = true;
+        startY = m.y;
+        startIndex = current();
+        beginEdit();
+        return true;
+    }
+
+    void mouseDrag (const Mouse& m) override
+    {
+        const auto steps = (int) std::lround ((startY - m.y) / (m.shift ? 40.0f : 18.0f));
+        setValue (minimum() + (float) std::clamp (startIndex + steps, 0, count() - 1));
+    }
+
+    void mouseUp (const Mouse&) override
+    {
+        dragging = false;
+        endEdit();
+    }
+
+    void mouseWheel (const Mouse&, float notches) override
+    {
+        if (notches != 0.0f)
+            setValue (minimum() + (float) std::clamp (current() + (notches > 0.0f ? 1 : -1), 0, count() - 1));
     }
 
 private:
-    static constexpr float rowHeight = 24.0f;
-    bool hovering = false;
-    int hoverRow = -1;
+    bool dragging = false;
+    float startY = 0.0f;
+    int startIndex = 0;
 
-    float captionHeight() const   { return ! label().empty() && height() >= 40 ? 18.0f : 0.0f; }
-    int count() const             { return numOptions() > 0 ? numOptions() : std::max (1, choices()); }
-    int current() const           { return std::clamp ((int) std::lround (value() - minimum()), 0, count() - 1); }
+    int count() const      { return numOptions() > 0 ? numOptions() : std::max (1, choices()); }
+    int current() const    { return std::clamp ((int) std::lround (value() - minimum()), 0, count() - 1); }
+    float cx() const       { return (float) width() * 0.5f; }
+    float cy() const       { return (float) height() * 0.55f; }
+    float radius() const   { return std::min ((float) width(), (float) height()) * 0.22f; }
+
+    float angleOf (int i) const   { return count() > 1 ? -2.4f + 4.8f * (float) i / (float) (count() - 1) : 0.0f; }
+    float labelX (int i) const    { return cx() + std::sin (angleOf (i)) * radius() * 1.9f; }
+    float labelY (int i) const    { return cy() - std::cos (angleOf (i)) * radius() * 1.7f; }
 
     std::string optionText (int i) const   { return i < numOptions() ? option (i) : std::to_string (i + 1); }
-
-    int rowAt (float y) const
-    {
-        const auto row = (int) std::floor ((y - 4.0f) / rowHeight);
-        return row >= 0 && row < count() ? row : -1;
-    }
 };
 
-STELLA_ELEMENT (DropDown, "A drop-down list: shows the chosen option; a click opens the list. Bind it to a 0..N-1 parameter; \"options\" names the positions.")
+STELLA_ELEMENT (RotarySwitch, "A rotary switch: a knob that clicks between named positions. For a 0..N-1 parameter; \"options\" names them.")
 ```
-Placed: `{ "type": "custom", "element": "DropDown", "param": "filter.mode", "label": "Type", "options": ["Low pass", "High pass", "Band pass"], "x": 40, "y": 200, "w": 150, "h": 48 }`.
+Placed: `{ "type": "custom", "element": "RotarySwitch", "param": "osc.wave", "options": ["Saw", "Square", "Tri", "Sine"], "x": 40, "y": 200, "w": 160, "h": 140 }`.
 
 ## Presets
 `save_preset` stores a named set of parameter values (ids to values; parameters left out keep their defaults). A preset with the same name is replaced. Presets show in the studio's preset list and go into the exported plugin, where a `preset` widget steps through them. When asked for presets, give each a clear name and values that really sound different.

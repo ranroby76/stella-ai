@@ -106,6 +106,7 @@ namespace
                  { "stella_element_host.h", StellaRuntimeData::stella_element_host_h, StellaRuntimeData::stella_element_host_hSize },
                  { "stella_elements.h", StellaRuntimeData::stella_elements_h, StellaRuntimeData::stella_elements_hSize },
                  { "stella_elements.cpp", StellaRuntimeData::stella_elements_cpp, StellaRuntimeData::stella_elements_cppSize },
+                 { "stella_builtin_elements.cpp", StellaRuntimeData::stella_builtin_elements_cpp, StellaRuntimeData::stella_builtin_elements_cppSize },
                  { "stb_truetype.h", StellaRuntimeData::stb_truetype_h, StellaRuntimeData::stb_truetype_hSize } };
     }
 
@@ -130,11 +131,10 @@ namespace
 
     bool isQuote (juce::juce_wchar c)    { return c == '"'; }
 
-    /** The STELLA_ELEMENT (Name, "description") lines of a file. */
-    void scanElements (const juce::String& text, const juce::String& file, juce::Array<WasmCompiler::ElementSource>& found)
+    /** The STELLA_ELEMENT (Name, "description") lines of a file (or another macro's). */
+    void scanElements (const juce::String& text, const juce::String& file, juce::Array<WasmCompiler::ElementSource>& found,
+                       const juce::String& macro = "STELLA_ELEMENT")
     {
-        const juce::String macro ("STELLA_ELEMENT");
-
         for (int at = text.indexOf (macro); at >= 0; at = text.indexOf (at + macro.length(), macro))
         {
             auto p = text.getCharPointer() + at + macro.length();
@@ -286,6 +286,14 @@ juce::Array<WasmCompiler::ElementSource> WasmCompiler::findElements (const juce:
     return found;
 }
 
+juce::Array<WasmCompiler::ElementSource> WasmCompiler::builtInElements()
+{
+    juce::Array<ElementSource> found;
+    scanElements (juce::String::fromUTF8 (StellaRuntimeData::stella_builtin_elements_cpp, StellaRuntimeData::stella_builtin_elements_cppSize),
+                  "the toolbox", found, "STELLA_BUILTIN_ELEMENT");
+    return found;
+}
+
 bool WasmCompiler::writeElementRuntime (const juce::File& folder)
 {
     for (const auto& file : elementRuntimeFiles())
@@ -303,14 +311,9 @@ WasmCompiler::Result WasmCompiler::compileElements (const juce::File& projectFol
     const auto started = juce::Time::getMillisecondCounterHiRes();
     const auto elements = projectFolder.getChildFile (elementsFolderName);
 
+    // Built even with no files of the project's own: the toolbox's drop-down list is one.
     auto files = elements.findChildFiles (juce::File::findFiles, false, "*.cpp");
     files.sort();
-
-    if (files.isEmpty())
-    {
-        result.ok = true;   // nothing to build: the GUI has no programmed elements
-        return result;
-    }
 
     const auto sdk = findCompiler();
 
@@ -355,36 +358,39 @@ WasmCompiler::Result WasmCompiler::compileElements (const juce::File& projectFol
         return clang.getExitCode() == 0;
     };
 
-    // The runtime (drawing, text, the font) is compiled once per studio version and kept.
-    const auto object = runtime.getChildFile ("runtime-" + elementRuntimeKey() + ".o");
+    // The runtime (drawing, text, the font) and the toolbox's elements are compiled once per
+    // studio version and kept.
+    const auto key = elementRuntimeKey();
+    const auto object = runtime.getChildFile ("runtime-" + key + ".o");
+    const auto builtIns = runtime.getChildFile ("builtins-" + key + ".o");
 
-    if (! object.existsAsFile())
+    if (! writeElementRuntime (runtime))
     {
-        if (! writeElementRuntime (runtime))
-        {
-            result.log = "Couldn't write into the build folder " + runtime.getFullPathName();
-            return result;
-        }
+        result.log = "Couldn't write into the build folder " + runtime.getFullPathName();
+        return result;
+    }
 
-        const auto partial = runtime.getChildFile ("runtime-building.o");
+    for (const auto& [source, target] : { std::pair<const char*, juce::File> { "stella_elements.cpp", object },
+                                          std::pair<const char*, juce::File> { "stella_builtin_elements.cpp", builtIns } })
+    {
+        if (target.existsAsFile())
+            continue;
+
+        const auto partial = runtime.getChildFile ("building.o");
         auto args = baseArgs();
         args.add ("-I" + runtime.getFullPathName());
         args.add ("-c");
-        args.add (runtime.getChildFile ("stella_elements.cpp").getFullPathName());
+        args.add (runtime.getChildFile (source).getFullPathName());
         args.add ("-o");
         args.add (partial.getFullPathName());
 
         juce::String log;
 
-        if (! run (args, log, 120000) || ! partial.existsAsFile() || ! partial.moveFileTo (object))
+        if (! run (args, log, 120000) || ! partial.existsAsFile() || ! partial.moveFileTo (target))
         {
             result.log = "The GUI elements' runtime didn't compile:\n" + log.trim();
             return result;
         }
-    }
-    else
-    {
-        writeElementRuntime (runtime);   // the headers, should they have been cleared away
     }
 
     const auto output = work.getChildFile ("elements.wasm");
@@ -397,6 +403,7 @@ WasmCompiler::Result WasmCompiler::compileElements (const juce::File& projectFol
     args.add ("-o");
     args.add (output.getFullPathName());
     args.add (object.getFullPathName());
+    args.add (builtIns.getFullPathName());
 
     for (const auto& file : files)
         args.add (file.getFullPathName());

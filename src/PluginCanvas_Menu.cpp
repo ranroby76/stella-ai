@@ -314,8 +314,9 @@ void PluginCanvas::ElementMenu::showFor (int widgetIndex)
         const auto& w = canvas.layout.widgets[(size_t) widget];
         const auto t = w.type;
         const bool custom = t == GuiWidget::Type::custom;
-        title = custom ? w.element : PluginCanvas::typeDisplayName (t);
-        subtitle = custom ? PluginCanvas::typeDisplayName (t) : (t == GuiWidget::Type::image ? w.image : w.label);
+        const bool dropdown = custom && w.element == GuiLayout::builtInElementFor ("dropdown");
+        title = dropdown ? juce::String ("Drop-down list") : (custom ? w.element : PluginCanvas::typeDisplayName (t));
+        subtitle = custom && ! dropdown ? PluginCanvas::typeDisplayName (t) : (t == GuiWidget::Type::image ? w.image : w.label);
 
         for (int i = 0; i < numTypes; ++i)
             if (typeOrder[i] == t)

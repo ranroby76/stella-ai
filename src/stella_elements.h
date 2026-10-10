@@ -3,7 +3,8 @@
 // The programmed elements' runtime (stella_elements.cpp), compiled with the elements
 // themselves: into a WebAssembly module the studio runs, or into an exported plugin. One
 // ElementRuntime serves one host; it creates the elements, draws them into pixel buffers
-// and passes the mouse on.
+// and passes the mouse on. The toolbox's own elements (stella_builtin_elements.cpp, the
+// drop-down list) are compiled in with it; a project's element of the same name replaces one.
 
 #pragma once
 
@@ -14,6 +15,12 @@
 
 namespace stella::ui
 {
+    /** A toolbox element, made like a programmed one: STELLA_BUILTIN_ELEMENT (DropDown, "..."). */
+    struct BuiltInRegistrar
+    {
+        BuiltInRegistrar (const char* name, const char* description, Element* (*make)());
+    };
+
     class ElementRuntime
     {
     public:
@@ -62,3 +69,6 @@ namespace stella::ui
         std::unique_ptr<Impl> impl;
     };
 }
+
+#define STELLA_BUILTIN_ELEMENT(Type, Description) \
+    static ::stella::ui::BuiltInRegistrar stellaBuiltInElement_##Type (#Type, Description, [] () -> ::stella::ui::Element* { return new Type(); });

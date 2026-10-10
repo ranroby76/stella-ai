@@ -540,16 +540,17 @@ juce::String StellaAi::modeContext() const
     // A conversation can design the panel but can't write code: a GUI element the toolbox
     // lacks (a drop-down list, say) is the builder's to program, never a toolbox stand-in.
     if (mode == "build")
-        return "\nYou're the builder. When the request needs a GUI element the toolbox doesn't have and the project hasn't "
-               "programmed (a drop-down list, droplist or combo box, a menu, tabs, a step sequencer...), program it in "
-               "elements/<Name>.cpp, build, then put it on the panel. Never make do with a selector or another toolbox type "
-               "instead, and never tell the user it can't be done.\n";
+        return "\nYou're the builder. A drop-down list (droplist, combo box) is the toolbox's \"dropdown\". When the request "
+               "needs a GUI element the toolbox doesn't have and the project hasn't programmed (a menu, tabs, a step sequencer, "
+               "a rotary switch...), program it in elements/<Name>.cpp, build, then put it on the panel. Never make do with a "
+               "selector or another toolbox type instead, and never tell the user it can't be done.\n";
 
-    return "\nYou're in a conversation: you can't write code or build. Design the panel with toolbox types and the "
-           "programmed elements listed above. When the request needs a GUI element the toolbox doesn't have and the project "
-           "hasn't programmed (a drop-down list, droplist or combo box, a menu, tabs, a step sequencer...), call "
-           "start_building straight away, saying which element: the builder programs it, builds it and puts it on the panel. "
-           "Never make do with a selector or another toolbox type instead, and never tell the user it can't be done.\n";
+    return "\nYou're in a conversation: you can't write code or build. Design the panel with toolbox types (a drop-down list, "
+           "droplist or combo box is the toolbox's \"dropdown\") and the programmed elements listed above. When the request "
+           "needs a GUI element the toolbox doesn't have and the project hasn't programmed (a menu, tabs, a step sequencer, a "
+           "rotary switch...), call start_building straight away, saying which element: the builder programs it, builds it "
+           "and puts it on the panel. Never make do with a selector or another toolbox type instead, and never tell the user "
+           "it can't be done.\n";
 }
 
 juce::String StellaAi::planContext() const

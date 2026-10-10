@@ -1,0 +1,17 @@
+{
+  "name": "Drop-down list",
+  "category": "Controls",
+  "order": 32,
+  "icon": "dropdown",
+  "description": "Picks one of many choices from a list that opens on a click, like a filter type.",
+  "widget": {
+    "type": "dropdown",
+    "w": 160,
+    "h": 48,
+    "options": [
+      "One",
+      "Two",
+      "Three"
+    ]
+  }
+}
