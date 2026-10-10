@@ -161,7 +161,11 @@ MainComponent::MainComponent (Settings& s)
 
     // Undo: snapshots around each request to Stella AI, and after each edit.
     // No buttons on screen for now (they come back where Rob decides): Ctrl+Z / Ctrl+Y.
-    ai.onTurnStarted = [this] (const juce::String&) { recordHistory ("Changes"); };
+    ai.onTurnStarted = [this] (const juce::String&)
+    {
+        flushLayoutSave();   // Stella AI sees the GUI as the user left it, and undo starts from there
+        recordHistory ("Changes");
+    };
     ai.onTurnFinished = [this] (const juce::String& request)
     {
         recordHistory ("Stella AI: " + (request.length() > 40 ? request.substring (0, 40) + juce::String::fromUTF8 ("\xe2\x80\xa6") : request));
@@ -636,11 +640,17 @@ void MainComponent::saveLayoutSoon()
     juce::Timer::callAfterDelay (400, [safeThis = juce::Component::SafePointer<MainComponent> (this)]
     {
         if (safeThis != nullptr)
-        {
-            safeThis->layoutSaveScheduled = false;
-            safeThis->saveLayout();
-        }
+            safeThis->flushLayoutSave();
     });
+}
+
+void MainComponent::flushLayoutSave()
+{
+    if (! layoutSaveScheduled)
+        return;
+
+    layoutSaveScheduled = false;
+    saveLayout();
 }
 
 void MainComponent::askAiAboutGui (int widgetIndex, const juce::String& instruction)
@@ -665,10 +675,10 @@ void MainComponent::askAiAboutGui (int widgetIndex, const juce::String& instruct
         const auto kind = GuiLayout::typeName (w.type);
         const auto name = w.type == GuiWidget::Type::image ? w.image : w.label;
 
-        context = "About one element of the plugin's GUI: element " + juce::String (widgetIndex + 1) + " of " + juce::String ((int) layout.widgets.size())
-                + " in gui/layout.json's widgets list (the " + kind + (name.isNotEmpty() ? " \"" + name + "\"" : juce::String()) + "):\n"
+        context = "About one element of the plugin's GUI: index " + juce::String (widgetIndex) + " in the project's GUI elements list (the "
+                + kind + (name.isNotEmpty() ? " \"" + name + "\"" : juce::String()) + "):\n"
                 + juce::JSON::toString (GuiLayout::widgetToVar (w), true)
-                + "\nChange that element (and only what's needed around it) with set_layout, keeping everything else as it is. "
+                + "\nChange that element (and only what's needed around it) with edit_layout, keeping everything else as it is. "
                   "The user's words about it:\n" + instruction.trim();
 
         shown = "The " + kind + (name.isNotEmpty() ? " \"" + name + "\"" : juce::String()) + ": " + instruction.trim();
@@ -678,7 +688,7 @@ void MainComponent::askAiAboutGui (int widgetIndex, const juce::String& instruct
     {
         context = "About the plugin's whole window (gui/layout.json: " + juce::String (layout.width) + " x " + juce::String (layout.height)
                 + (layout.backgroundPicture().isNotEmpty() ? ", background picture " + layout.backgroundPicture() : juce::String())
-                + "). Change it with set_layout, keeping what the user arranged unless they ask otherwise. The user's words about it:\n"
+                + "). Change it with edit_layout, keeping what the user arranged (set_layout only if they ask for a new design). The user's words about it:\n"
                 + instruction.trim();
 
         shown = "The plugin window: " + instruction.trim();

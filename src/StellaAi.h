@@ -80,6 +80,7 @@ private:
     juce::String mode { "chat" };        // "chat" or "build"
     int roundsLeft = 0, turnStart = 0;
     bool busy = false, stopRequested = false;
+    bool layoutChangedThisStep = false;   // set_layout or edit_layout ran among this answer's calls
 
     juce::Array<juce::var> pendingCalls, toolResults;   // the current answer's tool calls
     juce::String currentRequest;

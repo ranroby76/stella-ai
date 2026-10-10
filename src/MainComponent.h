@@ -50,6 +50,7 @@ private:
     void loadLayout (bool makeOneIfMissing);
     void saveLayout();
     void saveLayoutSoon();
+    void flushLayoutSave();   // a save that's waiting happens now
     void autoLayout();
     void askAiAboutGui (int widgetIndex, const juce::String& instruction);
     void sendFromChat (const juce::String& request, const juce::Array<juce::File>& files);

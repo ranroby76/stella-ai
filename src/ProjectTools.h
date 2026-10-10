@@ -9,6 +9,8 @@
 
 #include <functional>
 
+class GuiLayout;
+
 //==============================================================================
 /**
     Stella AI's hands: the tools it calls to look at the project, write its modules, wire
@@ -16,9 +18,10 @@
     only inside the project's modules folder and graph.json, and builds through the live
     preview, so whatever the AI builds plays at once.
 
-    Two sets of tools: in a conversation, the AI can look, design the GUI (set_layout) and
-    hand over to the builder (start_building); the builder can also change the code and
-    build it.
+    Two sets of tools: in a conversation, the AI can look, design the GUI (set_layout for a
+    whole design, edit_layout for part of it, by the element indexes the project's
+    description lists) and hand over to the builder (start_building); the builder can also
+    change the code and build it.
 */
 class ProjectTools final
 {
@@ -55,6 +58,10 @@ public:
 private:
     juce::Result resolve (const juce::String& path, juce::File& file, bool forWriting) const;
     juce::String buildResult (bool ok) const;
+
+    /** What's wrong with a GUI the AI made (parameters, pictures or looks that don't exist),
+        as lines for its tool result; before is the GUI it replaced. */
+    juce::String checkLayout (const GuiLayout& layout, const GuiLayout& before) const;
 
     Project& project;
     LivePreview& preview;

@@ -345,6 +345,7 @@ void StellaAi::onAnswer (const juce::Result& result, const juce::var& answer)
             if (block.getProperty ("type", {}).toString() == "tool_use")
                 pendingCalls.add (block);
 
+        layoutChangedThisStep = false;
         notify();
         runNextTool();
         return;
@@ -405,6 +406,16 @@ void StellaAi::runNextTool()
         return;
     }
 
+    // edit_layout names elements by the indexes Stella AI was shown: after another change to
+    // the GUI in the same step they'd point at the wrong elements.
+    if (name == "edit_layout" && layoutChangedThisStep)
+    {
+        toolResults.add (makeToolResult (id, "Not done: the GUI changed just before in this step, so these indexes are out of date. "
+                                             "Make this edit in your next step, with the updated \"GUI elements\" list.", true));
+        runNextTool();
+        return;
+    }
+
     if (const auto line = ProjectTools::describeCall (name, input); line.isNotEmpty())
     {
         addEntry (Entry::Kind::activity, line);
@@ -417,6 +428,9 @@ void StellaAi::runNextTool()
             return;
 
         toolResults.add (makeToolResult (id, result, isError));
+
+        if (! isError && (name == "set_layout" || name == "edit_layout"))
+            layoutChangedThisStep = true;
 
         if (name == "build")
             addEntry (Entry::Kind::activity, isError ? juce::String::fromUTF8 ("Fixing a few things\xe2\x80\xa6")
@@ -513,7 +527,8 @@ juce::Array<juce::var> StellaAi::compacted() const
                 const auto text = copy.getProperty ("content", {}).toString();
 
                 if (text.length() > 1500)
-                    copy.getDynamicObject()->setProperty ("content", text.substring (0, 1500) + "\n[... cut]");
+                    copy.getDynamicObject()->setProperty ("content", text.substring (0, 1500)
+                                                                         + "\n[... cut to keep requests small: read it again to see all of it]");
             }
             else if (type == "image" || type == "document")
             {
