@@ -259,7 +259,7 @@ juce::Rectangle<float> PluginCanvas::panelHandle() const
 
 juce::Rectangle<float> PluginCanvas::handleArea (int handle) const
 {
-    if (! juce::isPositiveAndBelow (selected, (int) layout.widgets.size()) || handle < 0 || handle > 7)
+    if (! juce::isPositiveAndBelow (selected, (int) layout.widgets.size()) || handle < 0 || handle > 7 || ! manySelected.empty())
         return {};
 
     const auto& w = layout.widgets[(size_t) selected];
@@ -326,23 +326,32 @@ namespace
     constexpr const char* clipboardKey = "stellaElements";   // what marks the clipboard's text as ours
 }
 
-void PluginCanvas::copyElement (int index)
+void PluginCanvas::copyElements (const std::vector<int>& indexes)
 {
-    if (! juce::isPositiveAndBelow (index, (int) layout.widgets.size()))
+    // Frames take what's inside them along; all in their layers' order.
+    std::set<int> copied;
+
+    for (const auto index : indexes)
+    {
+        if (! juce::isPositiveAndBelow (index, (int) layout.widgets.size()))
+            continue;
+
+        copied.insert (index);
+        const auto& frame = layout.widgets[(size_t) index];
+
+        if (frame.type == GuiWidget::Type::group)
+            for (int i = 0; i < (int) layout.widgets.size(); ++i)
+                if (i != index && frame.bounds.contains (layout.widgets[(size_t) i].bounds) && ! isBackdrop (layout.widgets[(size_t) i]))
+                    copied.insert (i);
+    }
+
+    if (copied.empty())
         return;
 
-    // A frame takes what's inside it along, in their layers' order.
-    const auto& copied = layout.widgets[(size_t) index];
     juce::Array<juce::var> list;
 
-    for (int i = 0; i < (int) layout.widgets.size(); ++i)
-    {
-        const auto& w = layout.widgets[(size_t) i];
-        const bool inside = copied.type == GuiWidget::Type::group && i != index && copied.bounds.contains (w.bounds) && ! isBackdrop (w);
-
-        if (i == index || inside)
-            list.add (GuiLayout::widgetToVar (w));
-    }
+    for (const auto i : copied)
+        list.add (GuiLayout::widgetToVar (layout.widgets[(size_t) i]));
 
     auto json = juce::var (new juce::DynamicObject());
     json.getDynamicObject()->setProperty (clipboardKey, list);
@@ -399,14 +408,47 @@ void PluginCanvas::pasteElements (std::optional<juce::Point<float>> at)
     target.y = juce::jlimit (0, juce::jmax (0, layout.height - area.getHeight()), target.y);
     const auto offset = target - area.getPosition();
     const auto first = (int) layout.widgets.size();
+    std::set<int> added;
 
     for (auto& w : pasted)
     {
         w.bounds.translate (offset.x, offset.y);
+        added.insert ((int) layout.widgets.size());
         layout.widgets.push_back (w);
     }
 
-    select (first);
+    // All selected: they move together.
+    selectMany (added, first);
+    edited();
+}
+
+void PluginCanvas::reorderSelection (bool toFront)
+{
+    const auto all = selection();
+
+    if (all.empty())
+        return;
+
+    releaseKey();
+
+    std::vector<GuiWidget> moving;
+
+    for (const auto i : all)
+        moving.push_back (layout.widgets[(size_t) i]);
+
+    for (auto it = all.rbegin(); it != all.rend(); ++it)
+        layout.widgets.erase (layout.widgets.begin() + *it);
+
+    const auto at = toFront ? (int) layout.widgets.size() : 0;
+    layout.widgets.insert (layout.widgets.begin() + at, moving.begin(), moving.end());
+    meterLevels.clear();   // kept by element index
+
+    std::set<int> moved;
+
+    for (int i = 0; i < (int) moving.size(); ++i)
+        moved.insert (at + i);
+
+    selectMany (moved, at + (int) moving.size() - 1);
     edited();
 }
 
@@ -427,6 +469,42 @@ void PluginCanvas::showElementPopup (int index, juce::Point<float> plugin)
     };
 
     juce::PopupMenu menuItems;
+
+    // Several selected: what works on them all.
+    if (manySelected.count (index) > 0)
+    {
+        menuItems.addSectionHeader (juce::String ((int) manySelected.size()) + " elements");
+        menuItems.addItem (item (1, "Bring to front", true, "Ctrl+Shift+]"));
+        menuItems.addItem (item (4, "Send to back", true, "Ctrl+Shift+["));
+        menuItems.addSeparator();
+        menuItems.addItem (item (8, "Copy", true, "Ctrl+C"));
+        menuItems.addItem (item (9, "Paste", ! clipboardElements().empty(), "Ctrl+V"));
+        menuItems.addItem (item (10, "Duplicate", true, "Ctrl+D"));
+        menuItems.addSeparator();
+        menuItems.addItem (item (6, "Delete", true, "Del"));
+
+        menuItems.showMenuAsync (juce::PopupMenu::Options().withMousePosition(),
+                                 [safeThis = juce::Component::SafePointer<PluginCanvas> (this), plugin] (int choice)
+                                 {
+                                     if (safeThis == nullptr || safeThis->manySelected.empty())
+                                         return;
+
+                                     safeThis->grabKeyboardFocus();
+
+                                     switch (choice)
+                                     {
+                                         case 1:  safeThis->reorderSelection (true); break;
+                                         case 4:  safeThis->reorderSelection (false); break;
+                                         case 8:  safeThis->copyElements (safeThis->selection()); break;
+                                         case 9:  safeThis->pasteElements (plugin); break;
+                                         case 10: safeThis->copyElements (safeThis->selection()); safeThis->pasteElements ({}); break;
+                                         case 6:  safeThis->removeSelected(); break;
+                                         default: break;
+                                     }
+                                 });
+        return;
+    }
+
     menuItems.addSectionHeader (typeDisplayName (layout.widgets[(size_t) index].type));
     menuItems.addItem (item (1, "Bring to front", index < last, "Ctrl+Shift+]"));
     menuItems.addItem (item (2, "Bring forward", index < last, "Ctrl+]"));
@@ -722,7 +800,9 @@ void PluginCanvas::mouseDown (const juce::MouseEvent& e)
 
             if (index >= 0)
             {
-                select (index);
+                if (manySelected.count (index) == 0)
+                    select (index);   // one of several selected keeps them all
+
                 showElementPopup (index, plugin);
             }
             else if (insidePanel)
@@ -752,6 +832,23 @@ void PluginCanvas::mouseDown (const juce::MouseEvent& e)
             return;
         }
 
+        // Shift: a click adds an element to the selection or takes it away; a drag on empty
+        // space (or the background picture) draws a box that adds what it touches.
+        if (e.mods.isShiftDown())
+        {
+            const auto picked = insidePanel ? widgetAt (plugin, false) : -1;
+
+            if (picked >= 0 && ! (isBackdrop (layout.widgets[(size_t) picked]) && ! isSelected (picked)))
+            {
+                toggleSelection (picked);
+                return;
+            }
+
+            drag = Drag::marquee;
+            marquee = {};
+            return;
+        }
+
         const auto index = insidePanel ? widgetAt (plugin, false) : -1;
 
         // The background picture isn't grabbed by accident: until it's selected, a drag on it
@@ -766,14 +863,31 @@ void PluginCanvas::mouseDown (const juce::MouseEvent& e)
         if (index >= 0)
         {
             // An element: it's selected now (an open menu follows it); a click opens its menu.
-            select (index);
+            // One of several selected: they all move with it.
+            const bool many = manySelected.count (index) > 0;
+
+            if (many)
+                selected = index;
+            else
+                select (index);
+
             drag = Drag::element;
             startBounds = layout.widgets[(size_t) selected].bounds;
 
-            if (layout.widgets[(size_t) selected].type == GuiWidget::Type::group)
-                for (int i = 0; i < (int) layout.widgets.size(); ++i)
-                    if (i != selected && startBounds.contains (layout.widgets[(size_t) i].bounds))
-                        carried.push_back ({ i, layout.widgets[(size_t) i].bounds });
+            // What moves along: the others selected, and what lies inside a frame that moves.
+            const auto movers = many ? manySelected : std::set<int> { selected };
+            std::set<int> along (movers.begin(), movers.end());
+
+            for (const auto mover : movers)
+                if (layout.widgets[(size_t) mover].type == GuiWidget::Type::group)
+                    for (int i = 0; i < (int) layout.widgets.size(); ++i)
+                        if (layout.widgets[(size_t) mover].bounds.contains (layout.widgets[(size_t) i].bounds))
+                            along.insert (i);
+
+            along.erase (selected);
+
+            for (const auto i : along)
+                carried.push_back ({ i, layout.widgets[(size_t) i].bounds });
 
             return;
         }
@@ -1047,6 +1161,13 @@ void PluginCanvas::mouseDrag (const juce::MouseEvent& e)
             return;
         }
 
+        case Drag::marquee:
+        {
+            marquee = juce::Rectangle<float> (toPlugin (dragStart), toPlugin (e.position)).toNearestInt();
+            repaint();
+            return;
+        }
+
         case Drag::control:
         {
             if (active < 0)
@@ -1117,10 +1238,42 @@ void PluginCanvas::mouseUp (const juce::MouseEvent& e)
     if (design && changed)
         edited();
 
+    if (was == Drag::marquee)
+    {
+        // What the box touches joins the selection (a frame only when it's all inside).
+        if (dragMoved && ! marquee.isEmpty())
+        {
+            const auto current = selection();
+            std::set<int> indexes (current.begin(), current.end());
+            int last = selected;
+
+            for (int i = 0; i < (int) layout.widgets.size(); ++i)
+            {
+                const auto& w = layout.widgets[(size_t) i];
+                const bool touched = w.type == GuiWidget::Type::group ? marquee.contains (w.bounds)
+                                                                      : ! isBackdrop (w) && marquee.intersects (w.bounds);
+
+                if (touched)
+                {
+                    indexes.insert (i);
+                    last = i;
+                }
+            }
+
+            selectMany (indexes, last);
+        }
+
+        marquee = {};
+        repaint();
+    }
+
     if (design)
     {
         if (was == Drag::element && ! dragMoved)
         {
+            if (! manySelected.empty())
+                select (selected);              // a click on one of several: just that one
+
             openMenu();                         // a click on an element opens its menu
         }
         else if (was == Drag::element || was == Drag::resizeElement || was == Drag::resizePanel)
@@ -1322,13 +1475,13 @@ bool PluginCanvas::keyPressed (const juce::KeyPress& key)
 
     if (ctrlAnd ('C'))
     {
-        copyElement (selected);
+        copyElements (selection());
         return true;
     }
 
     if (ctrlAnd ('D'))
     {
-        copyElement (selected);
+        copyElements (selection());
         pasteElements ({});
         return true;
     }
@@ -1343,6 +1496,13 @@ bool PluginCanvas::keyPressed (const juce::KeyPress& key)
     if (mods.isCtrlDown() || mods.isCommandDown())
     {
         const auto code = key.getKeyCode();
+
+        // Several: all to the front or the back, keeping their order.
+        if (! manySelected.empty() && (code == ']' || code == '}' || code == '[' || code == '{'))
+        {
+            reorderSelection (code == ']' || code == '}');
+            return true;
+        }
 
         if (code == ']' || code == '}')
         {
@@ -1368,7 +1528,9 @@ bool PluginCanvas::keyPressed (const juce::KeyPress& key)
     if (move.isOrigin())
         return false;
 
-    layout.widgets[(size_t) selected].bounds.translate (move.x, move.y);
+    for (const auto index : selection())
+        layout.widgets[(size_t) index].bounds.translate (move.x, move.y);
+
     edited();
     return true;
 }

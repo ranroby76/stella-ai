@@ -163,6 +163,7 @@ void PluginCanvas::setLayout (const GuiLayout& newLayout)
     releaseKey();   // its keyboard may be gone, or elsewhere now
     layout = newLayout;
     meterLevels.clear();
+    manySelected.clear();   // the elements may be other ones now
     syncElements();
 
     // Pictures that weren't there may be now.
@@ -438,10 +439,15 @@ int PluginCanvas::addElement (GuiWidget w, std::optional<juce::Point<float>> cen
 
 void PluginCanvas::removeSelected()
 {
-    if (! juce::isPositiveAndBelow (selected, (int) layout.widgets.size()))
+    const auto all = selection();
+
+    if (all.empty())
         return;
 
-    layout.widgets.erase (layout.widgets.begin() + selected);
+    for (auto it = all.rbegin(); it != all.rend(); ++it)
+        layout.widgets.erase (layout.widgets.begin() + *it);
+
+    meterLevels.clear();   // kept by element index
     select (-1);
     edited();
 }
@@ -1781,7 +1787,27 @@ void PluginCanvas::paint (juce::Graphics& g)
         corner.addTriangle (grip.getTopRight(), grip.getBottomRight(), grip.getBottomLeft());
         g.fillPath (corner);
 
-        if (selected >= 0)
+        // Several selected: a frame round each (handles only for one alone).
+        for (const auto index : manySelected)
+        {
+            if (! juce::isPositiveAndBelow (index, (int) layout.widgets.size()))
+                continue;
+
+            g.setColour (index == selected ? Theme::accent : Theme::accent.withAlpha (0.75f));
+            g.drawRect (toView (layout.widgets[(size_t) index].bounds).expanded (2.0f), 1.5f);
+        }
+
+        // Shift+drag's box.
+        if (drag == Drag::marquee && ! marquee.isEmpty())
+        {
+            const auto box = toView (marquee);
+            g.setColour (Theme::accent.withAlpha (0.12f));
+            g.fillRect (box);
+            g.setColour (Theme::accent.withAlpha (0.8f));
+            g.drawRect (box, 1.0f);
+        }
+
+        if (selected >= 0 && manySelected.empty())
         {
             const auto box = toView (layout.widgets[(size_t) selected].bounds);
             g.setColour (Theme::accent);

@@ -792,10 +792,61 @@ void PluginCanvas::showAiReply (const juce::String& reply)
     banner->toFront (false);
 }
 
+std::vector<int> PluginCanvas::selection() const
+{
+    std::vector<int> result (manySelected.begin(), manySelected.end());
+
+    if (result.empty() && juce::isPositiveAndBelow (selected, (int) layout.widgets.size()))
+        result.push_back (selected);
+
+    return result;
+}
+
+bool PluginCanvas::isSelected (int index) const
+{
+    return manySelected.empty() ? index == selected : manySelected.count (index) > 0;
+}
+
+void PluginCanvas::toggleSelection (int index)
+{
+    const auto current = selection();
+    std::set<int> indexes (current.begin(), current.end());
+
+    if (indexes.count (index) > 0)
+        indexes.erase (index);
+    else
+        indexes.insert (index);
+
+    selectMany (indexes, index);
+}
+
+void PluginCanvas::selectMany (const std::set<int>& indexes, int primary)
+{
+    std::set<int> valid;
+
+    for (const auto i : indexes)
+        if (juce::isPositiveAndBelow (i, (int) layout.widgets.size()))
+            valid.insert (i);
+
+    if (valid.size() <= 1 || ! design)
+    {
+        select (valid.empty() ? -1 : *valid.begin());
+        return;
+    }
+
+    // Several: no edit menu (it edits one), the last one picked in front of the others.
+    manySelected = valid;
+    selected = valid.count (primary) > 0 ? primary : *valid.rbegin();
+    panelSelected = false;
+    closeMenu();
+    repaint();
+}
+
 void PluginCanvas::select (int index)
 {
     selected = design && juce::isPositiveAndBelow (index, (int) layout.widgets.size()) ? index : -1;
     panelSelected = false;
+    manySelected.clear();
 
     if (selected < 0)
         closeMenu();
@@ -808,6 +859,7 @@ void PluginCanvas::select (int index)
 void PluginCanvas::selectPanel()
 {
     selected = -1;
+    manySelected.clear();
     panelSelected = design && hasPanel();
 
     if (! panelSelected)

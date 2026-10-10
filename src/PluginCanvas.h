@@ -13,6 +13,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
 
 class WasmElements;
 
@@ -46,7 +47,12 @@ class WasmElements;
     Ctrl+], Ctrl+[, Ctrl+Shift+[), and for Copy, Paste and Duplicate (Ctrl+C, Ctrl+V,
     Ctrl+D): a copied frame takes what's inside it along, and a paste lands where the
     menu was opened (Ctrl+V: under the mouse). Copies go through the system clipboard, so
-    they paste into another project too. A background picture is a picture element covering the
+    they paste into another project too.
+
+    Several at once: Shift+click adds an element to the selection (or takes it away), and
+    Shift+drag on empty space draws a box that adds what it touches. Dragging any of them
+    moves them all; Delete, the arrow keys, Copy, Duplicate, Bring to front and Send to back
+    work on them all; a click on one of them alone selects just that one. A background picture is a picture element covering the
     window at the back; until it's selected, dragging it moves the view, as empty space does.
 
     Knobs, sliders and switches are drawn from their looks (see Looks): a frame for each
@@ -84,7 +90,7 @@ public:
         module displays ("lfo.position"). For the edit menu's lists. */
     void setSources (const juce::StringArray& signals, const juce::StringArray& displays);
 
-    /** The presets a preset widget steps through, and the one chosen. */
+    /** The presets a preset widget steps through, and the one manySelected. */
     void setPresets (const juce::StringArray& names, int current);
 
     /** The GUI's programmed elements from the latest build (nullptr: none, or not built yet). */
@@ -328,8 +334,17 @@ private:
     void showElementPopup (int index, juce::Point<float> plugin);
     void showWindowPopup (juce::Point<float> plugin);
 
+    // Several selected at once: `selected` is the one the mouse last picked, `manySelected` all of
+    // them (empty when one or none is selected).
+    std::vector<int> selection() const;                            // every selected element, back to front
+    bool isSelected (int index) const;
+    void toggleSelection (int index);                              // Shift+click
+    void selectMany (const std::set<int>& indexes, int primary);   // one or none: a plain selection
+    void reorderSelection (bool toFront);                          // all of them, keeping their order
+
     // Copy and paste: elements as JSON on the system clipboard.
-    void copyElement (int index);                                  // a frame with what's inside it
+    void copyElements (const std::vector<int>& indexes);           // frames with what's inside them
+    void copyElement (int index)                                   { copyElements ({ index }); }
     std::vector<GuiWidget> clipboardElements() const;              // empty: nothing of ours there
     void pasteElements (std::optional<juce::Point<float>> at);     // at: where their top-left goes (plugin
                                                                    // pixels); none: a step beside the copies
@@ -385,10 +400,12 @@ private:
 
     bool design = true, baking = false;
     int selected = -1, active = -1, hovered = -1;
+    std::set<int> manySelected;                                          // all selected, when more than one
+    juce::Rectangle<int> marquee;                                  // Shift+drag's box, in plugin pixels
     bool panelSelected = false, menuOpen = false;
 
     // What a press is doing.
-    enum class Drag { none, element, resizeElement, resizePanel, pan, minimap, hScroll, vScroll, control };
+    enum class Drag { none, element, resizeElement, resizePanel, pan, minimap, hScroll, vScroll, control, marquee };
     Drag drag = Drag::none;
     bool changed = false, dragMoved = false;                       // dragMoved: the press became a drag
     bool pressedPanel = false;                                     // the press started on the window's empty space
