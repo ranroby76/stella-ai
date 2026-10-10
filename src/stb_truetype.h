@@ -1,3 +1,5 @@
+// C:\workspace\Stella AI Studio\src\stb_truetype.h
+// stb_truetype 1.26 by Sean Barrett (public domain), unchanged: the programmed GUI elements' text.
 // stb_truetype.h - v1.26 - public domain
 // authored from 2009-2021 by Sean Barrett / RAD Game Tools
 //
