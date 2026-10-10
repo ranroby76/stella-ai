@@ -33,27 +33,29 @@ class WasmElements;
     for every note that sounds, a MIDI keyboard's too.
 
     Edit mode: drag primitives in from the toolbox (or pictures from the desktop). Click an
-    element to select it and open its edit menu, which also takes an instruction for
-    Stella AI; click the window's empty space for the window's own menu (size, colours,
-    a picture behind everything). Drag to move (snapped); drag the selected element's
-    handles (corners and sides) to resize it, Shift on a corner keeps its shape. Delete
-    removes it, the arrow keys nudge it (Shift: further). Dragging a group carries what's
-    inside. The window's own corner handle resizes the window. Double-clicking a knob,
-    slider or switch opens its look in the Knob Studio; double-clicking a picture picks its
-    file.
+    element to select it; right-click it for its menu (the one menu): Copy, Paste,
+    Duplicate and its layer at the top, then what edits it (its parameter typed in by id),
+    Delete, and an instruction for Stella AI at its foot. Right-click the window's empty
+    space for the window's own menu (size, colours, a picture behind everything, Paste).
+    Drag to move (snapped); drag the selected element's handles (corners and sides) to
+    resize it, Shift on a corner keeps its shape. Delete removes it, the arrow keys nudge
+    it (Shift: further). Dragging a group carries what's inside. The window's own corner
+    handle resizes the window. Double-clicking a knob, slider or switch opens its look in
+    the Knob Studio; double-clicking a picture picks its file.
 
-    Elements lie in layers, in the layout's order: the first at the back. Right-click one
-    for Bring to front, Bring forward, Send backward, Send to back (also Ctrl+Shift+],
-    Ctrl+], Ctrl+[, Ctrl+Shift+[), and for Copy, Paste and Duplicate (Ctrl+C, Ctrl+V,
-    Ctrl+D): a copied frame takes what's inside it along, and a paste lands where the
-    menu was opened (Ctrl+V: under the mouse). Copies go through the system clipboard, so
-    they paste into another project too.
+    Elements lie in layers, in the layout's order: the first at the back. The menu's Layer
+    list brings one to the front or forward, or sends it backward or to the back (also
+    Ctrl+Shift+], Ctrl+], Ctrl+[, Ctrl+Shift+[). Copy, Paste and Duplicate (Ctrl+C, Ctrl+V,
+    Ctrl+D): a copied frame takes what's inside it along, and a paste lands where the menu
+    was opened (Ctrl+V: under the mouse). Copies go through the system clipboard, so they
+    paste into another project too.
 
     Several at once: Shift+click adds an element to the selection (or takes it away), and
     Shift+drag on empty space draws a box that adds what it touches. Dragging any of them
     moves them all; Delete, the arrow keys, Copy, Duplicate, Bring to front and Send to back
-    work on them all; a click on one of them alone selects just that one. A background picture is a picture element covering the
-    window at the back; until it's selected, dragging it moves the view, as empty space does.
+    work on them all, and their menu gives them one colour; a click on one of them alone
+    selects just that one. A background picture is a picture element covering the window
+    at the back; until it's selected, dragging it moves the view, as empty space does.
 
     Knobs, sliders and switches are drawn from their looks (see Looks): a frame for each
     value, made by KnobMaker's layer renderer. Programmed elements (Stella AI's own, from
@@ -211,6 +213,7 @@ private:
     static bool isInteractive (const GuiWidget& w);
     static juce::String typeDisplayName (GuiWidget::Type type);
     static juce::Rectangle<int> defaultBounds (GuiWidget::Type type, int x, int y);
+    static juce::Colour standardColour (const GuiWidget& w);   // what it's drawn in with no colour of its own
     static const char* defaultStarPath();
 
     /** A project is open: the window shows (even with nothing on it yet). */
@@ -331,8 +334,6 @@ private:
     // Layers: the layout's order, the first element at the back.
     enum class Order { front, forward, backward, back };
     void reorder (int index, Order order);
-    void showElementPopup (int index, juce::Point<float> plugin);
-    void showWindowPopup (juce::Point<float> plugin);
 
     // Several selected at once: `selected` is the one the mouse last picked, `manySelected` all of
     // them (empty when one or none is selected).
@@ -349,6 +350,7 @@ private:
     void pasteElements (std::optional<juce::Point<float>> at);     // at: where their top-left goes (plugin
                                                                    // pixels); none: a step beside the copies
     int pasteCount = 0;                                            // pastes since the copy, each a step further
+    std::optional<juce::Point<float>> pastePoint;                  // where the menu was opened, for its Paste
 
     /** A picture covering the whole window: the background. */
     bool isBackdrop (const GuiWidget& w) const;

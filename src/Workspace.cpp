@@ -214,7 +214,7 @@ void Workspace::PluginView::paint (juce::Graphics& g)
     if (playMode)
         g.drawText ("Preset", juce::Rectangle<int> (16, barHeight, 60, rowHeight), juce::Justification::centredLeft, false);
     else
-        g.drawFittedText (juce::String::fromUTF8 ("Drag parts in from the toolbox \xc2\xb7 click one to edit it or ask Stella AI \xc2\xb7 "
+        g.drawFittedText (juce::String::fromUTF8 ("Drag parts in from the toolbox \xc2\xb7 right-click one to edit it or ask Stella AI \xc2\xb7 "
                                                   "drag empty space to move around \xc2\xb7 Ctrl + wheel zooms"),
                           hintArea, juce::Justification::centredLeft, 1, 0.85f);
 }

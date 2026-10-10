@@ -452,137 +452,6 @@ void PluginCanvas::reorderSelection (bool toFront)
     edited();
 }
 
-void PluginCanvas::showElementPopup (int index, juce::Point<float> plugin)
-{
-    if (! juce::isPositiveAndBelow (index, (int) layout.widgets.size()))
-        return;
-
-    const auto last = (int) layout.widgets.size() - 1;
-
-    auto item = [] (int id, const char* text, bool enabled, const char* keys)
-    {
-        juce::PopupMenu::Item i (text);
-        i.itemID = id;
-        i.isEnabled = enabled;
-        i.shortcutKeyDescription = keys;
-        return i;
-    };
-
-    juce::PopupMenu menuItems;
-
-    // Several selected: what works on them all.
-    if (manySelected.count (index) > 0)
-    {
-        menuItems.addSectionHeader (juce::String ((int) manySelected.size()) + " elements");
-        menuItems.addItem (item (1, "Bring to front", true, "Ctrl+Shift+]"));
-        menuItems.addItem (item (4, "Send to back", true, "Ctrl+Shift+["));
-        menuItems.addSeparator();
-        menuItems.addItem (item (8, "Copy", true, "Ctrl+C"));
-        menuItems.addItem (item (9, "Paste", ! clipboardElements().empty(), "Ctrl+V"));
-        menuItems.addItem (item (10, "Duplicate", true, "Ctrl+D"));
-        menuItems.addSeparator();
-        menuItems.addItem (item (6, "Delete", true, "Del"));
-
-        menuItems.showMenuAsync (juce::PopupMenu::Options().withMousePosition(),
-                                 [safeThis = juce::Component::SafePointer<PluginCanvas> (this), plugin] (int choice)
-                                 {
-                                     if (safeThis == nullptr || safeThis->manySelected.empty())
-                                         return;
-
-                                     safeThis->grabKeyboardFocus();
-
-                                     switch (choice)
-                                     {
-                                         case 1:  safeThis->reorderSelection (true); break;
-                                         case 4:  safeThis->reorderSelection (false); break;
-                                         case 8:  safeThis->copyElements (safeThis->selection()); break;
-                                         case 9:  safeThis->pasteElements (plugin); break;
-                                         case 10: safeThis->copyElements (safeThis->selection()); safeThis->pasteElements ({}); break;
-                                         case 6:  safeThis->removeSelected(); break;
-                                         default: break;
-                                     }
-                                 });
-        return;
-    }
-
-    menuItems.addSectionHeader (typeDisplayName (layout.widgets[(size_t) index].type));
-    menuItems.addItem (item (1, "Bring to front", index < last, "Ctrl+Shift+]"));
-    menuItems.addItem (item (2, "Bring forward", index < last, "Ctrl+]"));
-    menuItems.addItem (item (3, "Send backward", index > 0, "Ctrl+["));
-    menuItems.addItem (item (4, "Send to back", index > 0, "Ctrl+Shift+["));
-    menuItems.addSeparator();
-    menuItems.addItem (item (8, "Copy", true, "Ctrl+C"));
-    menuItems.addItem (item (9, "Paste", ! clipboardElements().empty(), "Ctrl+V"));
-    menuItems.addItem (item (10, "Duplicate", true, "Ctrl+D"));
-    menuItems.addSeparator();
-    menuItems.addItem (item (5, "Edit", true, ""));
-    menuItems.addItem (item (6, "Delete", true, "Del"));
-    menuItems.addSeparator();
-    menuItems.addItem (item (7, "Window size and colours", true, ""));
-
-    menuItems.showMenuAsync (juce::PopupMenu::Options().withMousePosition(),
-                             [safeThis = juce::Component::SafePointer<PluginCanvas> (this), index, plugin] (int choice)
-                             {
-                                 if (safeThis == nullptr || ! juce::isPositiveAndBelow (index, (int) safeThis->layout.widgets.size()))
-                                     return;
-
-                                 safeThis->grabKeyboardFocus();   // the menu took it: the layer keys work again
-
-                                 switch (choice)
-                                 {
-                                     case 1: safeThis->reorder (index, Order::front); break;
-                                     case 2: safeThis->reorder (index, Order::forward); break;
-                                     case 3: safeThis->reorder (index, Order::backward); break;
-                                     case 4: safeThis->reorder (index, Order::back); break;
-                                     case 5: safeThis->select (index); safeThis->openMenu(); break;
-                                     case 6: safeThis->select (index); safeThis->removeSelected(); break;
-                                     case 7: safeThis->selectPanel(); safeThis->openMenu(); break;
-                                     case 8: safeThis->copyElement (index); break;
-                                     case 9: safeThis->pasteElements (plugin); break;
-                                     case 10: safeThis->copyElement (index); safeThis->pasteElements ({}); break;
-                                     default: break;
-                                 }
-                             });
-}
-
-void PluginCanvas::showWindowPopup (juce::Point<float> plugin)
-{
-    juce::PopupMenu menuItems;
-    menuItems.addSectionHeader ("Plugin window");
-    menuItems.addItem (1, "Window size and colours");
-    menuItems.addItem (2, juce::String::fromUTF8 ("Add a background picture\xe2\x80\xa6"));
-    menuItems.addSeparator();
-
-    juce::PopupMenu::Item paste ("Paste");
-    paste.itemID = 3;
-    paste.isEnabled = ! clipboardElements().empty();
-    paste.shortcutKeyDescription = "Ctrl+V";
-    menuItems.addItem (paste);
-
-    menuItems.showMenuAsync (juce::PopupMenu::Options().withMousePosition(),
-                             [safeThis = juce::Component::SafePointer<PluginCanvas> (this), plugin] (int choice)
-                             {
-                                 if (safeThis == nullptr)
-                                     return;
-
-                                 safeThis->grabKeyboardFocus();
-
-                                 if (choice == 1)
-                                 {
-                                     safeThis->selectPanel();
-                                     safeThis->openMenu();
-                                 }
-                                 else if (choice == 2)
-                                 {
-                                     safeThis->choosePicture (-1);
-                                 }
-                                 else if (choice == 3)
-                                 {
-                                     safeThis->pasteElements (plugin);
-                                 }
-                             });
-}
-
 void PluginCanvas::navigateMinimapTo (juce::Point<float> view)
 {
     const auto map = minimapArea();
@@ -793,7 +662,8 @@ void PluginCanvas::mouseDown (const juce::MouseEvent& e)
 
     if (design)
     {
-        // A right-click: the element's layers and the like, or the window's.
+        // A right-click opens the menu: the element's (one of several selected: theirs), or
+        // the window's on its empty space. Its Paste lands where it was opened.
         if (e.mods.isPopupMenu())
         {
             const auto index = insidePanel ? widgetAt (plugin, false) : -1;
@@ -801,13 +671,16 @@ void PluginCanvas::mouseDown (const juce::MouseEvent& e)
             if (index >= 0)
             {
                 if (manySelected.count (index) == 0)
-                    select (index);   // one of several selected keeps them all
+                    select (index);
 
-                showElementPopup (index, plugin);
+                pastePoint = plugin;
+                openMenu();
             }
             else if (insidePanel)
             {
-                showWindowPopup (plugin);
+                selectPanel();
+                pastePoint = plugin;
+                openMenu();
             }
 
             return;
@@ -862,8 +735,12 @@ void PluginCanvas::mouseDown (const juce::MouseEvent& e)
 
         if (index >= 0)
         {
-            // An element: it's selected now (an open menu follows it); a click opens its menu.
-            // One of several selected: they all move with it.
+            // An element: it's selected now (a menu open for another one closes: the menu is
+            // the right-click's). One of several selected: they all move with it.
+            if (menuOpen && ! isSelected (index))
+                closeMenu();
+
+            reopenMenu = menuOpen;
             const bool many = manySelected.count (index) > 0;
 
             if (many)
@@ -1273,8 +1150,6 @@ void PluginCanvas::mouseUp (const juce::MouseEvent& e)
         {
             if (! manySelected.empty())
                 select (selected);              // a click on one of several: just that one
-
-            openMenu();                         // a click on an element opens its menu
         }
         else if (was == Drag::element || was == Drag::resizeElement || was == Drag::resizePanel)
         {
@@ -1283,17 +1158,21 @@ void PluginCanvas::mouseUp (const juce::MouseEvent& e)
         }
         else if (was == Drag::pan && ! dragMoved)
         {
-            // A click on the background picture selects it and opens its menu; on the window's
-            // empty space, the window's menu; outside it: nothing.
+            // A click on the background picture selects it; on the window's empty space, the
+            // window; outside it: nothing. A menu open for something else closes.
             if (juce::isPositiveAndBelow (pressedBackdrop, (int) layout.widgets.size()))
             {
+                if (menuOpen && ! isSelected (pressedBackdrop))
+                    closeMenu();
+
                 select (pressedBackdrop);
-                openMenu();
             }
             else if (pressedPanel)
             {
+                if (menuOpen && ! panelSelected)
+                    closeMenu();
+
                 selectPanel();
-                openMenu();
             }
             else
             {

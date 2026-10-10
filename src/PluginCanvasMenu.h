@@ -9,9 +9,11 @@
 
 //==============================================================================
 /**
-    The edit menu: it opens beside the element that was clicked (or the window, when its
-    empty space was clicked) and edits it on the spot. At its foot, an instruction for
-    Stella AI about this very element: "make it gold and a bit bigger".
+    The edit menu, the one menu a right-click opens: beside the element (or the window, for
+    its empty space, or the elements selected together). Under its title what it does with
+    them: Copy, Paste, Duplicate and the layers (a list of its own); then what edits it on
+    the spot, its parameter typed in by id; Delete at the end. At its foot, an instruction
+    for Stella AI about this very element: "make it gold and a bit bigger".
 */
 class PluginCanvas::ElementMenu final : public juce::Component
 {
@@ -21,6 +23,10 @@ public:
 
     /** An element (its index), or -1 for the window itself. */
     void showFor (int widgetIndex);
+
+    /** Several elements selected together: what works on them all. */
+    void showForSeveral (const std::vector<int>& indexes);
+
     int getWidgetIndex() const noexcept    { return widget; }
 
     int getIdealHeight() const;
@@ -62,24 +68,42 @@ private:
     void addRow (const juce::String& caption, juce::Component& first, juce::Component* second = nullptr, float firstShare = 1.0f, int height = 26);
     void setShown (juce::Component& first, bool shouldShow, const juce::String& caption = {});
     void apply();
+    void applySeveral();
     void applyWindow();
-    void fillParams (juce::ComboBox& box, const juce::String& selectedId, bool withNone);
     void send();
+
+    /** What the actions work on: the element, or the ones selected together. */
+    std::vector<int> targets() const;
+    void showActions (bool forElements);
+    void layer (int choice);   // the Layer list's item
+
+    /** A parameter typed in: its id, or a name (any case) for the id; otherwise what was typed,
+        as an id, for a parameter the plugin doesn't have yet. */
+    juce::String paramIdFor (const juce::String& typed) const;
+    juce::String paramCaption (const juce::String& caption, const juce::String& id) const;
+    int footerSize() const    { return several.empty() ? 118 : 0; }
 
     PluginCanvas& canvas;
     int widget = -1;
+    std::vector<int> several;   // the elements selected together (empty: one, or the window)
     bool updating = false;
     juce::String title, subtitle;
 
     juce::TextButton closeButton;
 
+    // What it does, under the title.
+    juce::TextButton copyButton { "Copy" }, pasteButton { "Paste" }, duplicateButton { "Duplicate" };
+    juce::ComboBox layerBox;
+    juce::Rectangle<int> actionsArea;
+
     // An element's rows.
-    juce::ComboBox type, param, source, mode, style, pictureMode, lowKey, highKey;
-    juce::ComboBox roles[4];
+    juce::ComboBox type, source, mode, style, pictureMode, lowKey, highKey;
+    juce::TextEditor param, roles[4];   // parameter ids, typed in
     juce::TextEditor label, options, textSize;
     juce::ToggleButton boldToggle { "Bold" };
     ColourSwatchButton colour { "Colour" };
-    juce::TextButton pictureButton, knobStudioButton { "Design it in the Knob Studio" }, removeButton { "Delete" };
+    juce::TextButton pictureButton, knobStudioButton { "Design it in the Knob Studio" }, removeButton { "Delete" },
+                     windowButton { "Window size and colours" };
     juce::StringArray roleNames;
     juce::StringArray lookNames;   // the Look list's entries, by item id - 1
 

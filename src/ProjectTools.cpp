@@ -81,7 +81,7 @@ namespace
             line << " " << key << "=" << id;
 
             if (! paramIds.isEmpty() && ! paramIds.contains (id))
-                line << " (no such parameter)";
+                line << " (not in the plugin yet)";
         };
 
         if (w.param.isNotEmpty())
@@ -744,8 +744,8 @@ juce::String ProjectTools::checkLayout (const GuiLayout& layout, const GuiLayout
                                    : "\nThese elements aren't toolbox types and aren't programmed: " + unprogrammed.joinIntoString (", ")
                                          + ". Use a toolbox type, or program each one (elements/<Name>.cpp ending with STELLA_ELEMENT (<Name>, ...), then build).")
          + (unbound.isEmpty() || preview.getParameters().isEmpty() ? juce::String()
-                                                                  : "\nThese parameter ids don't exist in the plugin (fix or remove those elements): "
-                                                                        + unbound.joinIntoString (", "))
+                                                                  : "\nThese parameter ids aren't in the plugin yet: " + unbound.joinIntoString (", ")
+                                                                        + ". Add each to the plugin's code (or bind the element to a parameter it has).")
          + (missingPictures.isEmpty() ? juce::String()
                                       : "\nThese pictures aren't in gui/images (use only the listed ones): " + missingPictures.joinIntoString (", "))
          + (unknownLooks.isEmpty() ? juce::String()

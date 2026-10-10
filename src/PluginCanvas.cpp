@@ -48,6 +48,14 @@ juce::String PluginCanvas::typeDisplayName (GuiWidget::Type type)
     return "Element";
 }
 
+juce::Colour PluginCanvas::standardColour (const GuiWidget& w)
+{
+    if (w.type == GuiWidget::Type::label || w.type == GuiWidget::Type::group || w.type == GuiWidget::Type::shape)
+        return captionColour;
+
+    return w.type == GuiWidget::Type::lamp ? juce::Colour (0xffffb020) : defaultAccent;
+}
+
 juce::Rectangle<int> PluginCanvas::defaultBounds (GuiWidget::Type type, int x, int y)
 {
     switch (type)

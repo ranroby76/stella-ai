@@ -1,6 +1,7 @@
 // C:\workspace\Stella AI Studio\src\PluginCanvas_Menu.cpp
-// The canvas's edit menu (an element's, or the window's) with its Stella AI instruction,
-// the Stella AI banner, and the selection that opens them.
+// The canvas's edit menu (an element's, several elements', or the window's: the one menu a
+// right-click opens) with its actions and its Stella AI instruction, the Stella AI banner,
+// and the selection.
 
 #include "PluginCanvas.h"
 #include "PluginCanvasMenu.h"
@@ -21,8 +22,14 @@ namespace
                                         GuiWidget::Type::image, GuiWidget::Type::label, GuiWidget::Type::group, GuiWidget::Type::shape };
     constexpr int numTypes = (int) (sizeof (typeOrder) / sizeof (typeOrder[0]));
 
-    constexpr int headerHeight = 46, footerHeight = 118, pad = 12;
+    constexpr int headerHeight = 46, actionsHeight = 40, pad = 12;
     const juce::Colour askYellow { 0xffffcc00 };   // as in the chat: what the user should answer or do
+
+    /** Whether its colour is the menu's to set (knobs, sliders and switches wear looks). */
+    bool takesColour (const GuiWidget& w)
+    {
+        return ! Looks::takesLook (w) && w.type != GuiWidget::Type::image && w.type != GuiWidget::Type::meter;
+    }
 
     juce::String pictureChoice (const juce::String& name)
     {
@@ -144,17 +151,61 @@ PluginCanvas::ElementMenu::ElementMenu (PluginCanvas& owner)
 
     pictureMode.addItemList (GuiLayout::pictureModeNames(), 1);
 
-    for (auto* box : { &type, &param, &source, &mode, &style, &pictureMode, &lowKey, &highKey })
+    for (auto* box : { &type, &source, &mode, &style, &pictureMode, &lowKey, &highKey })
         box->onChange = [this] { apply(); };
 
-    for (auto& box : roles)
-        box.onChange = [this] { apply(); };
-
-    for (auto* editor : { &label, &options, &textSize, &widthBox, &heightBox })
+    for (auto* editor : { &label, &options, &textSize, &widthBox, &heightBox, &param, &roles[0], &roles[1], &roles[2], &roles[3] })
     {
         editor->setFont (Theme::font (14.0f));
         editor->setIndents (6, 4);
     }
+
+    // Parameters are typed in, an id (or a name): they're used on Enter, or on leaving the box.
+    for (auto* editor : { &param, &roles[0], &roles[1], &roles[2], &roles[3] })
+    {
+        editor->setTextToShowWhenEmpty ("none: type a parameter id", Theme::muted);
+        editor->setTooltip ("The parameter it works: its id (or name). A new id is a parameter for Stella AI to add to the plugin");
+        editor->onReturnKey = [this] { apply(); };
+        editor->onFocusLost = [this] { apply(); };
+    }
+
+    // What it does, under the title.
+    copyButton.setTooltip ("Copy (Ctrl+C): a frame takes what's inside it along");
+    pasteButton.setTooltip ("Paste (Ctrl+V)");
+    duplicateButton.setTooltip ("Duplicate (Ctrl+D)");
+    layerBox.setTooltip ("Bring to front or forward, send backward or to the back (Ctrl+Shift+], Ctrl+], Ctrl+[, Ctrl+Shift+[)");
+
+    copyButton.onClick = [this]
+    {
+        canvas.copyElements (targets());
+        pasteButton.setEnabled (true);
+    };
+
+    pasteButton.onClick = [this]
+    {
+        // The first paste lands where the menu was opened, the next ones a step further each.
+        const auto at = canvas.pastePoint;
+        canvas.pastePoint.reset();
+        canvas.pasteElements (at);
+    };
+
+    duplicateButton.onClick = [this]
+    {
+        canvas.copyElements (targets());
+        canvas.pasteElements ({});
+    };
+
+    layerBox.onChange = [this]
+    {
+        const auto choice = layerBox.getSelectedId();
+        layerBox.setText ("Layer", juce::dontSendNotification);   // it stays "Layer"
+        layer (choice);
+    };
+
+    addChildComponent (copyButton);
+    addChildComponent (pasteButton);
+    addChildComponent (duplicateButton);
+    addChildComponent (layerBox);
 
     label.onTextChange = [this] { apply(); };
     options.onTextChange = [this] { apply(); };
@@ -197,6 +248,13 @@ PluginCanvas::ElementMenu::ElementMenu (PluginCanvas& owner)
     removeButton.setTooltip ("Delete it from the window (Delete key)");
     removeButton.onClick = [this] { canvas.removeSelected(); };
 
+    windowButton.setTooltip ("The window's own menu: its size, colours and background picture");
+    windowButton.onClick = [this]
+    {
+        canvas.selectPanel();
+        canvas.openMenu();
+    };
+
     // An element's rows, in the order they show...
     addRow ("Type", type);
     addRow ("Parameter", param);
@@ -215,7 +273,7 @@ PluginCanvas::ElementMenu::ElementMenu (PluginCanvas& owner)
     addRow ("Picture fit", pictureMode);
     addRow ("Colour", colour, nullptr, 1.0f, 22);
     addRow ({}, knobStudioButton, nullptr, 1.0f, 28);
-    addRow ({}, removeButton, nullptr, 0.4f, 28);
+    addRow ({}, removeButton, &windowButton, 0.32f, 28);
 
     // ...and the window's.
     addRow ("Window size (width, height)", widthBox, &heightBox, 0.5f);
@@ -265,31 +323,19 @@ void PluginCanvas::ElementMenu::setShown (juce::Component& first, bool shouldSho
     }
 }
 
-void PluginCanvas::ElementMenu::fillParams (juce::ComboBox& box, const juce::String& selectedId, bool withNone)
-{
-    box.clear (juce::dontSendNotification);
-
-    if (withNone)
-        box.addItem ("(none)", 1);
-
-    for (int i = 0; i < canvas.params.size(); ++i)
-        box.addItem (canvas.params[i].name + juce::String::fromUTF8 ("  \xc2\xb7  ") + canvas.params[i].id, i + 2);
-
-    box.setSelectedId (1, juce::dontSendNotification);
-
-    for (int i = 0; i < canvas.params.size(); ++i)
-        if (canvas.params[i].id == selectedId)
-            box.setSelectedId (i + 2, juce::dontSendNotification);
-}
-
 //==============================================================================
 void PluginCanvas::ElementMenu::showFor (int widgetIndex)
 {
     const juce::ScopedValueSetter<bool> quiet (updating, true);
     widget = juce::isPositiveAndBelow (widgetIndex, (int) canvas.layout.widgets.size()) ? widgetIndex : -1;
+    several.clear();
 
     for (auto& row : rows.rows)
         row.shown = false;
+
+    showActions (widget >= 0);
+    instruction.setVisible (true);
+    sendButton.setVisible (true);
 
     if (widget < 0)
     {
@@ -326,8 +372,8 @@ void PluginCanvas::ElementMenu::showFor (int widgetIndex)
 
         if (w.isControl() || custom)
         {
-            fillParams (param, w.param, true);
-            setShown (param, true);
+            param.setText (w.param, juce::dontSendNotification);
+            setShown (param, true, paramCaption ("Parameter", w.param));
         }
 
         if (w.isLive())
@@ -352,8 +398,9 @@ void PluginCanvas::ElementMenu::showFor (int widgetIndex)
                 continue;
 
             const auto found = w.roles.find (roleNames[i]);
-            fillParams (roles[i], found != w.roles.end() ? found->second : juce::String(), true);
-            setShown (roles[i], true, roleNames[i].substring (0, 1).toUpperCase() + roleNames[i].substring (1));
+            const auto id = found != w.roles.end() ? found->second : juce::String();
+            roles[i].setText (id, juce::dontSendNotification);
+            setShown (roles[i], true, paramCaption (roleNames[i].substring (0, 1).toUpperCase() + roleNames[i].substring (1), id));
         }
 
         mode.clear (juce::dontSendNotification);
@@ -433,8 +480,8 @@ void PluginCanvas::ElementMenu::showFor (int widgetIndex)
         }
 
         colour.setColourValue (w.colour, juce::dontSendNotification);
-        setShown (colour, ! Looks::takesLook (w) && t != GuiWidget::Type::image && t != GuiWidget::Type::meter,
-                  t == GuiWidget::Type::keyboard ? "Colour of the keys that are down" : "Colour");
+        colour.setStandardColour (PluginCanvas::standardColour (w));
+        setShown (colour, takesColour (w), t == GuiWidget::Type::keyboard ? "Colour of the keys that are down" : "Colour");
         setShown (removeButton, true);
 
         instruction.setTextToShowWhenEmpty ("e.g. make it bigger and gold", Theme::muted);
@@ -442,6 +489,140 @@ void PluginCanvas::ElementMenu::showFor (int widgetIndex)
 
     resized();
     repaint();
+}
+
+void PluginCanvas::ElementMenu::showForSeveral (const std::vector<int>& indexes)
+{
+    std::vector<int> valid;
+
+    for (const auto i : indexes)
+        if (juce::isPositiveAndBelow (i, (int) canvas.layout.widgets.size()))
+            valid.push_back (i);
+
+    if (valid.size() < 2)
+    {
+        showFor (valid.empty() ? -1 : valid.front());
+        return;
+    }
+
+    const juce::ScopedValueSetter<bool> quiet (updating, true);
+    widget = -1;
+    several = valid;
+
+    for (auto& row : rows.rows)
+        row.shown = false;
+
+    title = juce::String ((int) several.size()) + " elements";
+    subtitle.clear();
+    showActions (true);
+
+    // One colour for all of them that take one (from the first of them).
+    for (const auto i : several)
+    {
+        const auto& w = canvas.layout.widgets[(size_t) i];
+
+        if (takesColour (w))
+        {
+            colour.setColourValue (w.colour, juce::dontSendNotification);
+            colour.setStandardColour (PluginCanvas::standardColour (w));
+            setShown (colour, true, "Colour (all of them)");
+            break;
+        }
+    }
+
+    setShown (removeButton, true);
+
+    // Stella AI hears about one element at a time.
+    instruction.setVisible (false);
+    sendButton.setVisible (false);
+
+    resized();
+    repaint();
+}
+
+void PluginCanvas::ElementMenu::showActions (bool forElements)
+{
+    copyButton.setVisible (forElements);
+    duplicateButton.setVisible (forElements);
+    layerBox.setVisible (forElements);
+    pasteButton.setVisible (true);
+    pasteButton.setEnabled (! canvas.clipboardElements().empty());
+
+    // The layers, a list of their own: several go all the way to the front or the back.
+    layerBox.clear (juce::dontSendNotification);
+    layerBox.setText ("Layer", juce::dontSendNotification);
+
+    if (! forElements)
+        return;
+
+    const auto last = (int) canvas.layout.widgets.size() - 1;
+    const bool one = several.empty();
+
+    layerBox.addItem ("Bring to front", 1);
+    layerBox.setItemEnabled (1, ! one || widget < last);
+
+    if (one)
+    {
+        layerBox.addItem ("Bring forward", 2);
+        layerBox.addItem ("Send backward", 3);
+        layerBox.setItemEnabled (2, widget < last);
+        layerBox.setItemEnabled (3, widget > 0);
+    }
+
+    layerBox.addItem ("Send to back", 4);
+    layerBox.setItemEnabled (4, ! one || widget > 0);
+}
+
+void PluginCanvas::ElementMenu::layer (int choice)
+{
+    if (! several.empty())
+    {
+        if (choice == 1 || choice == 4)
+            canvas.reorderSelection (choice == 1);
+    }
+    else if (choice >= 1 && choice <= 4)
+    {
+        const Order orders[] { Order::front, Order::forward, Order::backward, Order::back };
+        canvas.reorder (widget, orders[choice - 1]);
+    }
+
+    canvas.grabKeyboardFocus();   // the layer keys work again
+}
+
+std::vector<int> PluginCanvas::ElementMenu::targets() const
+{
+    if (! several.empty())
+        return several;
+
+    return widget >= 0 ? std::vector<int> { widget } : std::vector<int>();
+}
+
+juce::String PluginCanvas::ElementMenu::paramIdFor (const juce::String& typed) const
+{
+    const auto text = typed.trim();
+
+    if (text.isEmpty())
+        return {};
+
+    for (const auto& p : canvas.params)
+        if (p.id == text)
+            return p.id;
+
+    for (const auto& p : canvas.params)
+        if (p.id.equalsIgnoreCase (text) || p.name.equalsIgnoreCase (text))
+            return p.id;
+
+    // One the plugin doesn't have yet: an id has no spaces.
+    return juce::StringArray::fromTokens (text, " \t", "").joinIntoString ("_");
+}
+
+juce::String PluginCanvas::ElementMenu::paramCaption (const juce::String& caption, const juce::String& id) const
+{
+    // Nothing known before the first build.
+    if (id.isEmpty() || canvas.params.isEmpty() || canvas.paramById (id) != nullptr)
+        return caption;
+
+    return caption + juce::String::fromUTF8 ("  \xc2\xb7  not in the plugin yet");
 }
 
 int PluginCanvas::ElementMenu::getIdealHeight() const
@@ -452,7 +633,7 @@ int PluginCanvas::ElementMenu::getIdealHeight() const
         if (row.shown)
             rowsHeight += (row.caption.isNotEmpty() ? 18 : 0) + row.height + 9;
 
-    return headerHeight + rowsHeight + footerHeight;
+    return headerHeight + actionsHeight + rowsHeight + footerSize();
 }
 
 void PluginCanvas::ElementMenu::resized()
@@ -462,7 +643,30 @@ void PluginCanvas::ElementMenu::resized()
     headerArea = area.removeFromTop (headerHeight);
     closeButton.setBounds (headerArea.withTrimmedRight (8).removeFromRight (30).withSizeKeepingCentre (30, 28));
 
-    footerArea = area.removeFromBottom (footerHeight);
+    // The actions, in a row: the window's menu has Paste only.
+    actionsArea = area.removeFromTop (actionsHeight);
+    auto strip = actionsArea.reduced (pad, 7);
+
+    if (! copyButton.isVisible())
+    {
+        pasteButton.setBounds (strip.removeFromLeft (80));
+    }
+    else
+    {
+        const std::pair<juce::Component*, float> parts[] { { &copyButton, 1.0f }, { &pasteButton, 1.0f },
+                                                           { &duplicateButton, 1.4f }, { &layerBox, 1.4f } };
+        const auto gap = 6;
+        const auto unit = (float) (strip.getWidth() - gap * 3) / 4.8f;
+
+        for (int i = 0; i < 4; ++i)
+        {
+            const auto width = i == 3 ? strip.getWidth() : juce::roundToInt (unit * parts[i].second);
+            parts[i].first->setBounds (strip.removeFromLeft (width));
+            strip.removeFromLeft (gap);
+        }
+    }
+
+    footerArea = area.removeFromBottom (footerSize());
 
     // The rows scroll when the menu is shorter than they are.
     viewport.setBounds (area.reduced (pad, 0));
@@ -506,6 +710,11 @@ void PluginCanvas::ElementMenu::paint (juce::Graphics& g)
 
     g.setColour (Theme::outline);
     g.fillRect (pad, headerArea.getBottom() - 1, getWidth() - pad * 2, 1);
+    g.fillRect (pad, actionsArea.getBottom() - 1, getWidth() - pad * 2, 1);
+
+    if (footerArea.isEmpty())
+        return;
+
     g.fillRect (pad, footerArea.getY(), getWidth() - pad * 2, 1);
 
     // Stella AI's corner.
@@ -518,7 +727,16 @@ void PluginCanvas::ElementMenu::paint (juce::Graphics& g)
 //==============================================================================
 void PluginCanvas::ElementMenu::apply()
 {
-    if (updating || ! juce::isPositiveAndBelow (widget, (int) canvas.layout.widgets.size()))
+    if (updating)
+        return;
+
+    if (! several.empty())
+    {
+        applySeveral();
+        return;
+    }
+
+    if (! juce::isPositiveAndBelow (widget, (int) canvas.layout.widgets.size()))
         return;
 
     auto& w = canvas.layout.widgets[(size_t) widget];
@@ -544,25 +762,29 @@ void PluginCanvas::ElementMenu::apply()
         return;
     }
 
-    auto paramAt = [this] (const juce::ComboBox& box)
-    {
-        const auto index = box.getSelectedId() - 2;
-        return juce::isPositiveAndBelow (index, canvas.params.size()) ? canvas.params[index].id : juce::String();
-    };
-
+    // The parameters typed in: the box shows the id each became.
     if (w.isControl() || w.type == GuiWidget::Type::custom)
-        w.param = paramAt (param);
+    {
+        w.param = paramIdFor (param.getText());
+        param.setText (w.param, juce::dontSendNotification);
+        setShown (param, true, paramCaption ("Parameter", w.param));
+    }
 
     if (w.isLive())
         w.source = source.getText();
 
-    for (int i = 0; i < roleNames.size(); ++i)
+    for (int i = 0; i < roleNames.size() && i < 4; ++i)
     {
-        const auto id = paramAt (roles[i]);
+        const auto id = paramIdFor (roles[i].getText());
 
         if (id.isNotEmpty()) w.roles[roleNames[i]] = id;
         else                 w.roles.erase (roleNames[i]);
+
+        roles[i].setText (id, juce::dontSendNotification);
+        setShown (roles[i], true, paramCaption (roleNames[i].substring (0, 1).toUpperCase() + roleNames[i].substring (1), id));
     }
+
+    rows.repaint();
 
     if (w.type == GuiWidget::Type::meter)
         w.mode = meterModes[juce::jmax (0, mode.getSelectedId() - 1)];
@@ -602,7 +824,7 @@ void PluginCanvas::ElementMenu::apply()
         w.bold = boldToggle.getToggleState();
     }
 
-    if (! Looks::takesLook (w) && w.type != GuiWidget::Type::image && w.type != GuiWidget::Type::meter)
+    if (takesColour (w))
         w.colour = colour.getColourValue();
 
     subtitle = w.type == GuiWidget::Type::image ? w.image : w.label;
@@ -610,9 +832,20 @@ void PluginCanvas::ElementMenu::apply()
     canvas.edited();
 }
 
+void PluginCanvas::ElementMenu::applySeveral()
+{
+    // Only the colour shows: it goes to every one of them that takes one.
+    for (const auto i : several)
+        if (juce::isPositiveAndBelow (i, (int) canvas.layout.widgets.size()))
+            if (auto& w = canvas.layout.widgets[(size_t) i]; takesColour (w))
+                w.colour = colour.getColourValue();
+
+    canvas.edited();
+}
+
 void PluginCanvas::ElementMenu::applyWindow()
 {
-    if (updating || widget >= 0)
+    if (updating || widget >= 0 || ! several.empty())
         return;
 
     auto& l = canvas.layout;
@@ -834,11 +1067,14 @@ void PluginCanvas::selectMany (const std::set<int>& indexes, int primary)
         return;
     }
 
-    // Several: no edit menu (it edits one), the last one picked in front of the others.
+    // Several: an open menu turns into theirs; `selected` is the last one picked.
     manySelected = valid;
     selected = valid.count (primary) > 0 ? primary : *valid.rbegin();
     panelSelected = false;
-    closeMenu();
+
+    if (menuOpen)
+        openMenu();
+
     repaint();
 }
 
@@ -872,13 +1108,16 @@ void PluginCanvas::selectPanel()
 
 void PluginCanvas::openMenu()
 {
-    if (! design || (selected < 0 && ! panelSelected))
+    if (! design || (selected < 0 && ! panelSelected && manySelected.empty()))
     {
         closeMenu();
         return;
     }
 
-    menu->showFor (panelSelected ? -1 : selected);
+    if (manySelected.size() > 1)
+        menu->showForSeveral (selection());
+    else
+        menu->showFor (panelSelected ? -1 : selected);
     menuOpen = true;
     menu->setVisible (true);
     layOutOverlays();
@@ -916,9 +1155,13 @@ void PluginCanvas::layOutOverlays()
     // otherwise along the canvas's right edge.
     if (menuOpen && menu->isVisible())
     {
-        const auto target = panelSelected || ! juce::isPositiveAndBelow (selected, (int) layout.widgets.size())
-                                ? panelArea()
-                                : toView (layout.widgets[(size_t) selected].bounds);
+        auto target = panelSelected || ! juce::isPositiveAndBelow (selected, (int) layout.widgets.size())
+                          ? panelArea()
+                          : toView (layout.widgets[(size_t) selected].bounds);
+
+        for (const auto i : manySelected)
+            if (juce::isPositiveAndBelow (i, (int) layout.widgets.size()))
+                target = target.getUnion (toView (layout.widgets[(size_t) i].bounds));
         const auto width = ElementMenu::menuWidth;
         const auto height = juce::jmin (menu->getIdealHeight(), view.getHeight() - 20);
 
