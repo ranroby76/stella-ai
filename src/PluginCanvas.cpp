@@ -250,10 +250,9 @@ void PluginCanvas::addPrimitive (const Primitive& primitive, std::optional<juce:
     if (! design || ! hasPanel())
         return;
 
+    // The background picture: a picture element filling the window, behind everything.
     if (primitive.setsBackground())
     {
-        selectPanel();
-        openMenu();
         choosePicture (-1);
         return;
     }
@@ -475,9 +474,26 @@ void PluginCanvas::usePicture (int widgetIndex, const juce::String& name)
 
     if (widgetIndex < 0)
     {
-        layout.backgroundImage = name;
+        // A background picture: a picture element covering the window, at the back. Its
+        // corners and sides stretch it; its menu and right-click change its layer.
+        releaseKey();
+
+        GuiWidget backdrop;
+        backdrop.type = GuiWidget::Type::image;
+        backdrop.image = name;
+        backdrop.mode = "stretch";
+        backdrop.bounds = { 0, 0, layout.width, layout.height };
+        layout.widgets.insert (layout.widgets.begin(), backdrop);
+        layout.backgroundImage.clear();
+        meterLevels.clear();
+
+        select (0);
+        edited();
+        openMenu();
+        return;
     }
-    else if (juce::isPositiveAndBelow (widgetIndex, (int) layout.widgets.size()))
+
+    if (juce::isPositiveAndBelow (widgetIndex, (int) layout.widgets.size()))
     {
         auto& w = layout.widgets[(size_t) widgetIndex];
         const bool first = w.image.isEmpty();
@@ -1517,12 +1533,29 @@ PluginCanvas::Bake PluginCanvas::bake()
     Bake result;
     result.background = juce::Image (juce::Image::ARGB, layout.width, layout.height, true);
 
+    // Still things lying over something that moves (a frame over a meter, glass over a knob,
+    // a caption on that glass) stay in front of it in the plugin too: layers of their own,
+    // not part of the background.
+    std::vector<bool> layered (layout.widgets.size(), false);
+
+    for (size_t i = 0; i < layout.widgets.size(); ++i)
+    {
+        const auto& w = layout.widgets[i];
+        const bool still = w.type == GuiWidget::Type::label || w.type == GuiWidget::Type::group || w.type == GuiWidget::Type::shape
+                        || (w.type == GuiWidget::Type::image && w.image.isNotEmpty());
+
+        for (size_t below = 0; still && below < i && ! layered[i]; ++below)
+            layered[i] = movingAreaOf (layout.widgets[below]).intersects (w.bounds)
+                      || (layered[below] && layout.widgets[below].bounds.intersects (w.bounds));
+    }
+
     {
         juce::Graphics g (result.background);
         drawPanel (g);
 
         for (int i = 0; i < (int) layout.widgets.size(); ++i)
-            drawWidget (g, i, Part::still);
+            if (! layered[(size_t) i])
+                drawWidget (g, i, Part::still);
     }
 
     std::map<juce::String, int> lookStrips;   // controls with the same look and size share frames
@@ -1530,12 +1563,32 @@ PluginCanvas::Bake PluginCanvas::bake()
     for (int i = 0; i < (int) layout.widgets.size(); ++i)
     {
         const auto& w = layout.widgets[(size_t) i];
-        const auto area = movingAreaOf (w);
+        const auto area = layered[(size_t) i] ? w.bounds.getIntersection ({ 0, 0, layout.width, layout.height }) : movingAreaOf (w);
         result.stripOf.push_back (-1);
         result.movingArea.push_back (area);
 
         if (area.isEmpty())
             continue;
+
+        // A layer in front of something that moves: one frame, drawn over it by the plugin.
+        if (layered[(size_t) i])
+        {
+            Bake::Strip strip;
+            strip.frameWidth = area.getWidth();
+            strip.frameHeight = area.getHeight();
+            strip.frames = 1;
+            strip.image = juce::Image (juce::Image::ARGB, area.getWidth(), area.getHeight(), true);
+
+            {
+                juce::Graphics g (strip.image);
+                g.setOrigin ({ -area.getX(), -area.getY() });
+                drawWidget (g, i, Part::still);
+            }
+
+            result.stripOf.back() = (int) result.strips.size();
+            result.strips.push_back (strip);
+            continue;
+        }
 
         // Knobs, sliders and switches: their look's frames (a switch: off, on).
         if (Looks::takesLook (w) && looks != nullptr)
@@ -1685,7 +1738,18 @@ void PluginCanvas::paint (juce::Graphics& g)
             const auto box = toView (layout.widgets[(size_t) selected].bounds);
             g.setColour (Theme::accent);
             g.drawRect (box.expanded (2.0f), 1.5f);
-            g.fillRect (widgetHandle());
+
+            // Its handles: corners and sides.
+            for (int handle = 0; handle < 8; ++handle)
+            {
+                if (const auto square = handleArea (handle); ! square.isEmpty())
+                {
+                    g.setColour (Theme::accent);
+                    g.fillRect (square);
+                    g.setColour (juce::Colours::white.withAlpha (0.85f));
+                    g.drawRect (square, 1.0f);
+                }
+            }
         }
     }
 

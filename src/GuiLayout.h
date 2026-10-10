@@ -62,16 +62,19 @@ struct GuiWidget
     The plugin's GUI as data, kept in the project as gui/layout.json. Stella AI drafts it,
     the user reshapes it in the Edit UI tab, and the studio draws it. Knobs, sliders and
     switches name a look: KnobMaker layer documents, made in the Knob Studio (see Looks),
-    so they look the same there, on the canvas and in the exported plugin. Pictures (a
-    background, or picture elements) are files in the project's gui/images folder.
+    so they look the same there, on the canvas and in the exported plugin. Pictures are
+    picture elements showing files from the project's gui/images folder; a background
+    picture is one covering the window, first in the list.
+
+    The widgets lie in layers in the list's order: the first at the back, the last in front.
 */
 class GuiLayout
 {
 public:
     int width = 720, height = 420;
     juce::Colour backgroundTop { 0xff2b2b30 }, backgroundBottom { 0xff17171a };
-    juce::String backgroundImage;              // a file in gui/images, over the colours (empty: none)
-    juce::String backgroundMode { "fill" };    // how it covers the window (see pictureModes)
+    juce::String backgroundImage;              // read from older layouts only: fromVar turns it into a
+    juce::String backgroundMode { "fill" };    // picture element at the back (see fromVar)
     std::vector<GuiWidget> widgets;
 
     static constexpr const char* fileName = "layout.json";   // in the project's gui folder
@@ -95,6 +98,10 @@ public:
 
     static GuiLayout fromVar (const juce::var& json);
     juce::var toVar() const;
+
+    /** The background picture's file: the backmost picture element covering the whole
+        window (empty: none). */
+    juce::String backgroundPicture() const;
 
     /** One element as JSON (the same fields as in layout.json), and back. */
     static juce::var widgetToVar (const GuiWidget& widget);

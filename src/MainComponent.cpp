@@ -122,6 +122,7 @@ MainComponent::MainComponent (Settings& s)
     workspace.onBuildRequested = [this] { buildPlugin(); };
     workspace.onShowLogRequested = [this] { showBuildLog(); };
     workspace.onExportRequested = [this] { exportPlugin(); };
+    workspace.onPanicRequested = [this] { engine.allNotesOff(); };
     workspace.onParameterChanged = [this] (int index, float value) { preview.setParameterValue (index, value); };
 
     // A keyboard element in the GUI plays the plugin like the studio's own keyboard state
@@ -676,7 +677,7 @@ void MainComponent::askAiAboutGui (int widgetIndex, const juce::String& instruct
     else
     {
         context = "About the plugin's whole window (gui/layout.json: " + juce::String (layout.width) + " x " + juce::String (layout.height)
-                + (layout.backgroundImage.isNotEmpty() ? ", background picture " + layout.backgroundImage : juce::String())
+                + (layout.backgroundPicture().isNotEmpty() ? ", background picture " + layout.backgroundPicture() : juce::String())
                 + "). Change it with set_layout, keeping what the user arranged unless they ask otherwise. The user's words about it:\n"
                 + instruction.trim();
 
@@ -919,9 +920,11 @@ void MainComponent::exportFinished (const PluginExporter::Result& result)
 
     auto options = juce::MessageBoxOptions()
                        .withTitle ("Exported")
-                       .withMessage (result.plugin.getFileName() + " and " + result.vst3.getFileName() + " are ready (Windows 64-bit), built in "
-                                     + juce::String (result.seconds, 1) + " s:\n" + result.plugin.getParentDirectory().getFullPathName()
-                                     + "\n\nCopy them into the folders your DAW scans, then rescan plugins:\n"
+                       .withMessage (result.plugin.getFileName() + ", " + result.vst3.getFileName() + " and the app " + result.app.getFileName()
+                                     + " are ready (Windows 64-bit), built in " + juce::String (result.seconds, 1) + " s:\n"
+                                     + result.plugin.getParentDirectory().getFullPathName()
+                                     + "\n\nThe app runs on its own: double-click it (its menu picks the audio output and MIDI inputs).\n\n"
+                                       "For your DAW, copy the plugins into the folders it scans, then rescan plugins:\n"
                                        "CLAP: %LOCALAPPDATA%\\Programs\\Common\\CLAP or C:\\Program Files\\Common Files\\CLAP\n"
                                        "VST3 (the whole folder): %LOCALAPPDATA%\\Programs\\Common\\VST3 or C:\\Program Files\\Common Files\\VST3\n"
                                        "The folders under %LOCALAPPDATA% need no admin rights.")

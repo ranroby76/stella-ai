@@ -85,8 +85,7 @@ private:
     // The window's rows.
     juce::TextEditor widthBox, heightBox;
     ColourSwatchButton topColour { "Top colour" }, bottomColour { "Bottom colour" };
-    juce::TextButton backgroundButton, removeBackgroundButton { "Remove" };
-    juce::ComboBox backgroundMode;
+    juce::TextButton backgroundButton;
 
     Rows rows;
     juce::Viewport viewport;

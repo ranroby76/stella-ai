@@ -220,7 +220,7 @@ juce::String ProjectTools::describeProject() const
 
     if (GuiLayout::load (layoutFile, layout).wasOk())
         text << "\nGUI: gui/layout.json, " << layout.width << " x " << layout.height << ", " << (int) layout.widgets.size() << " elements"
-             << (layout.backgroundImage.isNotEmpty() ? ", background picture " + layout.backgroundImage : juce::String()) << ".\n";
+             << (layout.backgroundPicture().isNotEmpty() ? ", background picture " + layout.backgroundPicture() : juce::String()) << ".\n";
     else
         text << "\nGUI: none yet (the studio makes a plain automatic one after the first build).\n";
 

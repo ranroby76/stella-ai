@@ -32,11 +32,17 @@
     Edit mode: drag primitives in from the toolbox (or pictures from the desktop). Click an
     element to select it and open its edit menu, which also takes an instruction for
     Stella AI; click the window's empty space for the window's own menu (size, colours,
-    background picture). Drag to move (snapped), drag an element's corner handle to resize
-    it, Delete removes it, the arrow keys nudge it (Shift: further). Dragging a group carries
-    what's inside. The window's own corner handle resizes the window. Double-clicking a
-    knob, slider or switch opens its look in the Knob Studio; double-clicking a picture
-    picks its file.
+    a picture behind everything). Drag to move (snapped); drag the selected element's
+    handles (corners and sides) to resize it, Shift on a corner keeps its shape. Delete
+    removes it, the arrow keys nudge it (Shift: further). Dragging a group carries what's
+    inside. The window's own corner handle resizes the window. Double-clicking a knob,
+    slider or switch opens its look in the Knob Studio; double-clicking a picture picks its
+    file.
+
+    Elements lie in layers, in the layout's order: the first at the back. Right-click one
+    for Bring to front, Bring forward, Send backward, Send to back (also Ctrl+Shift+],
+    Ctrl+], Ctrl+[, Ctrl+Shift+[). A background picture is a picture element covering the
+    window at the back; until it's selected, dragging it moves the view, as empty space does.
 
     Knobs, sliders and switches are drawn from their looks (see Looks): a frame for each
     value, made by KnobMaker's layer renderer.
@@ -181,6 +187,7 @@ private:
     //==========================================================================
     // The elements
     static constexpr int snapStep = 4;                 // design grid, in plugin pixels
+    static constexpr int edgeSnap = 8;                 // how near a resized side sticks to the window's edge
     static constexpr float handleSize = 10.0f;         // resize handles, in view pixels
     static int snapped (float v)                       { return juce::roundToInt (v / (float) snapStep) * snapStep; }
     static bool isInteractive (const GuiWidget& w);
@@ -266,7 +273,22 @@ private:
     juce::Rectangle<float> hThumb() const;
     juce::Rectangle<float> vThumb() const;
     juce::Rectangle<float> panelHandle() const;  // the window's own resize corner
-    juce::Rectangle<float> widgetHandle() const; // the selected element's
+
+    /** The selected element's resize handles: 0 top-left, 1 top, 2 top-right, 3 right,
+        4 bottom-right, 5 bottom, 6 bottom-left, 7 left. Knobs (they stay round) have the
+        corners only; a small element, its corners only. Empty: no such handle. */
+    juce::Rectangle<float> handleArea (int handle) const;
+    int handleAt (juce::Point<float> view) const;   // -1: none
+
+    //==========================================================================
+    // Layers: the layout's order, the first element at the back.
+    enum class Order { front, forward, backward, back };
+    void reorder (int index, Order order);
+    void showElementPopup (int index);
+    void showWindowPopup();
+
+    /** A picture covering the whole window: the background. */
+    bool isBackdrop (const GuiWidget& w) const;
     void navigateMinimapTo (juce::Point<float> view);
     void drawGrid (juce::Graphics&);
     void drawMinimap (juce::Graphics&);
@@ -314,6 +336,8 @@ private:
     Drag drag = Drag::none;
     bool changed = false, dragMoved = false;                       // dragMoved: the press became a drag
     bool pressedPanel = false;                                     // the press started on the window's empty space
+    int pressedBackdrop = -1;                                      // ...or on the background picture, not selected yet
+    int resizeHandle = -1;                                         // the handle being dragged (see handleArea)
     bool reopenMenu = false;                                       // the menu was open when the press started
     juce::Point<float> dragStart;
     juce::Point<float> panAtDragStart;

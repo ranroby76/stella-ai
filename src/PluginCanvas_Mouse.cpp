@@ -257,13 +257,143 @@ juce::Rectangle<float> PluginCanvas::panelHandle() const
     return { area.getRight() - 12.0f, area.getBottom() - 12.0f, 12.0f, 12.0f };
 }
 
-juce::Rectangle<float> PluginCanvas::widgetHandle() const
+juce::Rectangle<float> PluginCanvas::handleArea (int handle) const
 {
-    if (! juce::isPositiveAndBelow (selected, (int) layout.widgets.size()))
+    if (! juce::isPositiveAndBelow (selected, (int) layout.widgets.size()) || handle < 0 || handle > 7)
         return {};
 
-    const auto box = toView (layout.widgets[(size_t) selected].bounds);
-    return juce::Rectangle<float> (handleSize, handleSize).withCentre (box.expanded (2.0f).getBottomRight());
+    const auto& w = layout.widgets[(size_t) selected];
+    const auto box = toView (w.bounds).expanded (2.0f);
+    const bool side = (handle % 2) == 1;
+
+    // Sides: not on knobs (they stay round), nor where they'd crowd the corners.
+    if (side && (w.type == GuiWidget::Type::knob
+                 || ((handle == 1 || handle == 5) && box.getWidth() < handleSize * 4.0f)
+                 || ((handle == 3 || handle == 7) && box.getHeight() < handleSize * 4.0f)))
+        return {};
+
+    const juce::Point<float> points[] { box.getTopLeft(), { box.getCentreX(), box.getY() }, box.getTopRight(),
+                                        { box.getRight(), box.getCentreY() }, box.getBottomRight(),
+                                        { box.getCentreX(), box.getBottom() }, box.getBottomLeft(), { box.getX(), box.getCentreY() } };
+
+    return juce::Rectangle<float> (handleSize, handleSize).withCentre (points[handle]);
+}
+
+int PluginCanvas::handleAt (juce::Point<float> view) const
+{
+    // Corners first: they win where they meet the sides.
+    for (const auto handle : { 0, 2, 4, 6, 1, 3, 5, 7 })
+        if (const auto area = handleArea (handle); ! area.isEmpty() && area.expanded (3.0f).contains (view))
+            return handle;
+
+    return -1;
+}
+
+bool PluginCanvas::isBackdrop (const GuiWidget& w) const
+{
+    return w.type == GuiWidget::Type::image && w.bounds.contains (juce::Rectangle<int> (0, 0, layout.width, layout.height));
+}
+
+void PluginCanvas::reorder (int index, Order order)
+{
+    if (! juce::isPositiveAndBelow (index, (int) layout.widgets.size()))
+        return;
+
+    const auto last = (int) layout.widgets.size() - 1;
+    const auto target = order == Order::front    ? last
+                      : order == Order::back     ? 0
+                      : order == Order::forward  ? juce::jmin (last, index + 1)
+                                                 : juce::jmax (0, index - 1);
+
+    if (target == index)
+        return;
+
+    releaseKey();
+
+    const auto moving = layout.widgets[(size_t) index];
+    layout.widgets.erase (layout.widgets.begin() + index);
+    layout.widgets.insert (layout.widgets.begin() + target, moving);
+    meterLevels.clear();   // kept by element index
+
+    select (target);
+    edited();
+}
+
+void PluginCanvas::showElementPopup (int index)
+{
+    if (! juce::isPositiveAndBelow (index, (int) layout.widgets.size()))
+        return;
+
+    const auto last = (int) layout.widgets.size() - 1;
+
+    auto item = [] (int id, const char* text, bool enabled, const char* keys)
+    {
+        juce::PopupMenu::Item i (text);
+        i.itemID = id;
+        i.isEnabled = enabled;
+        i.shortcutKeyDescription = keys;
+        return i;
+    };
+
+    juce::PopupMenu menuItems;
+    menuItems.addSectionHeader (typeDisplayName (layout.widgets[(size_t) index].type));
+    menuItems.addItem (item (1, "Bring to front", index < last, "Ctrl+Shift+]"));
+    menuItems.addItem (item (2, "Bring forward", index < last, "Ctrl+]"));
+    menuItems.addItem (item (3, "Send backward", index > 0, "Ctrl+["));
+    menuItems.addItem (item (4, "Send to back", index > 0, "Ctrl+Shift+["));
+    menuItems.addSeparator();
+    menuItems.addItem (item (5, "Edit", true, ""));
+    menuItems.addItem (item (6, "Delete", true, "Del"));
+    menuItems.addSeparator();
+    menuItems.addItem (item (7, "Window size and colours", true, ""));
+
+    menuItems.showMenuAsync (juce::PopupMenu::Options().withMousePosition(),
+                             [safeThis = juce::Component::SafePointer<PluginCanvas> (this), index] (int choice)
+                             {
+                                 if (safeThis == nullptr || ! juce::isPositiveAndBelow (index, (int) safeThis->layout.widgets.size()))
+                                     return;
+
+                                 safeThis->grabKeyboardFocus();   // the menu took it: the layer keys work again
+
+                                 switch (choice)
+                                 {
+                                     case 1: safeThis->reorder (index, Order::front); break;
+                                     case 2: safeThis->reorder (index, Order::forward); break;
+                                     case 3: safeThis->reorder (index, Order::backward); break;
+                                     case 4: safeThis->reorder (index, Order::back); break;
+                                     case 5: safeThis->select (index); safeThis->openMenu(); break;
+                                     case 6: safeThis->select (index); safeThis->removeSelected(); break;
+                                     case 7: safeThis->selectPanel(); safeThis->openMenu(); break;
+                                     default: break;
+                                 }
+                             });
+}
+
+void PluginCanvas::showWindowPopup()
+{
+    juce::PopupMenu menuItems;
+    menuItems.addSectionHeader ("Plugin window");
+    menuItems.addItem (1, "Window size and colours");
+    menuItems.addItem (2, juce::String::fromUTF8 ("Add a background picture\xe2\x80\xa6"));
+
+    menuItems.showMenuAsync (juce::PopupMenu::Options().withMousePosition(),
+                             [safeThis = juce::Component::SafePointer<PluginCanvas> (this)] (int choice)
+                             {
+                                 if (safeThis == nullptr)
+                                     return;
+
+                                 safeThis->grabKeyboardFocus();
+
+                                 if (choice == 1)
+                                 {
+                                     safeThis->selectPanel();
+                                     safeThis->openMenu();
+                                 }
+                                 else if (choice == 2)
+                                 {
+                                     safeThis->choosePicture (-1);
+                                 }
+                             });
 }
 
 void PluginCanvas::navigateMinimapTo (juce::Point<float> view)
@@ -421,6 +551,7 @@ void PluginCanvas::mouseDown (const juce::MouseEvent& e)
     drag = Drag::none;
     changed = dragMoved = false;
     pressedPanel = false;
+    pressedBackdrop = -1;
     reopenMenu = menuOpen;
     carried.clear();
     dragStart = e.position;
@@ -475,10 +606,29 @@ void PluginCanvas::mouseDown (const juce::MouseEvent& e)
 
     if (design)
     {
-        // The selected element's corner resizes it; the window's own corner resizes the window.
-        if (selected >= 0 && widgetHandle().expanded (4.0f).contains (e.position))
+        // A right-click: the element's layers and the like, or the window's.
+        if (e.mods.isPopupMenu())
+        {
+            const auto index = insidePanel ? widgetAt (plugin, false) : -1;
+
+            if (index >= 0)
+            {
+                select (index);
+                showElementPopup (index);
+            }
+            else if (insidePanel)
+            {
+                showWindowPopup();
+            }
+
+            return;
+        }
+
+        // The selected element's handles resize it; the window's own corner resizes the window.
+        if (const auto handle = selected >= 0 ? handleAt (e.position) : -1; handle >= 0)
         {
             drag = Drag::resizeElement;
+            resizeHandle = handle;
             startBounds = layout.widgets[(size_t) selected].bounds;
             closeMenu();
             return;
@@ -494,6 +644,15 @@ void PluginCanvas::mouseDown (const juce::MouseEvent& e)
         }
 
         const auto index = insidePanel ? widgetAt (plugin, false) : -1;
+
+        // The background picture isn't grabbed by accident: until it's selected, a drag on it
+        // moves the view and a click selects it.
+        if (index >= 0 && index != selected && isBackdrop (layout.widgets[(size_t) index]))
+        {
+            pressedBackdrop = index;
+            drag = Drag::pan;
+            return;
+        }
 
         if (index >= 0)
         {
@@ -653,17 +812,25 @@ void PluginCanvas::mouseDrag (const juce::MouseEvent& e)
 
         case Drag::resizePanel:
         {
-            // Never smaller than what's on it.
+            // Never smaller than what's on it; a picture filling the window keeps filling it.
+            const juce::Rectangle<int> oldWindow (0, 0, layout.width, layout.height);
             int needW = GuiLayout::minWidth, needH = GuiLayout::minHeight;
 
             for (const auto& w : layout.widgets)
             {
+                if (w.type == GuiWidget::Type::image && w.bounds == oldWindow)
+                    continue;
+
                 needW = juce::jmax (needW, w.bounds.getRight());
                 needH = juce::jmax (needH, w.bounds.getBottom());
             }
 
             layout.width = juce::jlimit (juce::jmin (needW, GuiLayout::maxWidth), GuiLayout::maxWidth, snapped ((float) startPanelSize.x + delta.x));
             layout.height = juce::jlimit (juce::jmin (needH, GuiLayout::maxHeight), GuiLayout::maxHeight, snapped ((float) startPanelSize.y + delta.y));
+
+            for (auto& w : layout.widgets)
+                if (w.type == GuiWidget::Type::image && w.bounds == oldWindow)
+                    w.bounds = { 0, 0, layout.width, layout.height };
             changed = true;
             autoFit = false;
             clampPan();
@@ -678,13 +845,45 @@ void PluginCanvas::mouseDrag (const juce::MouseEvent& e)
                 return;
 
             auto& w = layout.widgets[(size_t) selected];
-            const auto minW = 12, minH = w.type == GuiWidget::Type::knob ? 12 + GuiLayout::captionHeight : 12;
-            const auto newW = juce::jmax (minW, snapped ((float) startBounds.getWidth() + delta.x));
-            const auto newH = juce::jmax (minH, snapped ((float) startBounds.getHeight() + delta.y));
+            const bool knob = w.type == GuiWidget::Type::knob;
+            const auto caption = knob ? GuiLayout::captionHeight : 0;
+            const auto minW = 12, minH = 12 + caption;
 
-            // A knob stays round: its size follows the drag, its caption stays under it.
-            w.bounds = w.type == GuiWidget::Type::knob ? startBounds.withSize (newW, newW + GuiLayout::captionHeight)
-                                                       : startBounds.withSize (newW, newH);
+            // The sides the handle moves; the others stay where they were.
+            const bool left = resizeHandle == 0 || resizeHandle == 6 || resizeHandle == 7;
+            const bool right = resizeHandle == 2 || resizeHandle == 3 || resizeHandle == 4;
+            const bool top = resizeHandle == 0 || resizeHandle == 1 || resizeHandle == 2;
+            const bool bottom = resizeHandle == 4 || resizeHandle == 5 || resizeHandle == 6;
+
+            auto x0 = startBounds.getX(), y0 = startBounds.getY(), x1 = startBounds.getRight(), y1 = startBounds.getBottom();
+
+            // A side near the window's edge sticks to it, so a picture is easily made to fill it.
+            auto toEdge = [] (int v, int edge) { return std::abs (v - edge) <= edgeSnap ? edge : v; };
+
+            if (left)   x0 = juce::jmin (x1 - minW, toEdge (snapped ((float) x0 + delta.x), 0));
+            if (right)  x1 = juce::jmax (x0 + minW, toEdge (snapped ((float) x1 + delta.x), layout.width));
+            if (top)    y0 = juce::jmin (y1 - minH, toEdge (snapped ((float) y0 + delta.y), 0));
+            if (bottom) y1 = juce::jmax (y0 + minH, toEdge (snapped ((float) y1 + delta.y), layout.height));
+
+            auto bounds = juce::Rectangle<int>::leftTopRightBottom (x0, y0, x1, y1);
+
+            // A knob stays round (its caption stays under it); Shift on a corner keeps the shape.
+            if (knob || ((left || right) && (top || bottom) && e.mods.isShiftDown()))
+            {
+                const auto startW = (float) startBounds.getWidth(), startH = (float) (startBounds.getHeight() - caption);
+                const auto scaleW = (float) bounds.getWidth() / juce::jmax (1.0f, startW);
+                const auto scaleH = (float) (bounds.getHeight() - caption) / juce::jmax (1.0f, startH);
+                const auto scale = std::abs (scaleW - 1.0f) >= std::abs (scaleH - 1.0f) ? scaleW : scaleH;
+                const auto newW = juce::jmax (minW, juce::roundToInt (startW * scale));
+                const auto newH = knob ? newW : juce::jmax (minH - caption, juce::roundToInt (startH * scale));
+
+                // Anchored at the corner opposite the handle.
+                const auto anchorX = left ? startBounds.getRight() : startBounds.getX();
+                const auto anchorY = top ? startBounds.getBottom() : startBounds.getY();
+                bounds = { left ? anchorX - newW : anchorX, top ? anchorY - (newH + caption) : anchorY, newW, newH + caption };
+            }
+
+            w.bounds = bounds;
             changed = true;
             repaint();
             return;
@@ -777,8 +976,14 @@ void PluginCanvas::mouseUp (const juce::MouseEvent&)
         }
         else if (was == Drag::pan && ! dragMoved)
         {
-            // A click on the window's empty space: the window's menu; outside it: nothing.
-            if (pressedPanel)
+            // A click on the background picture selects it and opens its menu; on the window's
+            // empty space, the window's menu; outside it: nothing.
+            if (juce::isPositiveAndBelow (pressedBackdrop, (int) layout.widgets.size()))
+            {
+                select (pressedBackdrop);
+                openMenu();
+            }
+            else if (pressedPanel)
             {
                 selectPanel();
                 openMenu();
@@ -877,10 +1082,23 @@ void PluginCanvas::mouseMove (const juce::MouseEvent& e)
         repaint();
     }
 
-    // The resize corners show it.
-    const bool onHandle = design && hasPanel() && (panelHandle().expanded (4.0f).contains (e.position)
-                                                   || (selected >= 0 && widgetHandle().expanded (4.0f).contains (e.position)));
-    setMouseCursor (onHandle ? juce::MouseCursor::BottomRightCornerResizeCursor : juce::MouseCursor::NormalCursor);
+    // The resize handles show it.
+    const auto handle = design && hasPanel() && selected >= 0 ? handleAt (e.position) : -1;
+
+    if (handle >= 0)
+    {
+        static const juce::MouseCursor::StandardCursorType cursors[] {
+            juce::MouseCursor::TopLeftCornerResizeCursor, juce::MouseCursor::UpDownResizeCursor,
+            juce::MouseCursor::TopRightCornerResizeCursor, juce::MouseCursor::LeftRightResizeCursor,
+            juce::MouseCursor::BottomRightCornerResizeCursor, juce::MouseCursor::UpDownResizeCursor,
+            juce::MouseCursor::BottomLeftCornerResizeCursor, juce::MouseCursor::LeftRightResizeCursor };
+
+        setMouseCursor (cursors[handle]);
+        return;
+    }
+
+    const bool onPanelHandle = design && hasPanel() && panelHandle().expanded (4.0f).contains (e.position);
+    setMouseCursor (onPanelHandle ? juce::MouseCursor::BottomRightCornerResizeCursor : juce::MouseCursor::NormalCursor);
 }
 
 void PluginCanvas::mouseExit (const juce::MouseEvent&)
@@ -918,6 +1136,24 @@ bool PluginCanvas::keyPressed (const juce::KeyPress& key)
     {
         removeSelected();
         return true;
+    }
+
+    // Layers: Ctrl+] forward, Ctrl+[ backward; with Shift, all the way.
+    if (mods.isCtrlDown() || mods.isCommandDown())
+    {
+        const auto code = key.getKeyCode();
+
+        if (code == ']' || code == '}')
+        {
+            reorder (selected, mods.isShiftDown() ? Order::front : Order::forward);
+            return true;
+        }
+
+        if (code == '[' || code == '{')
+        {
+            reorder (selected, mods.isShiftDown() ? Order::back : Order::backward);
+            return true;
+        }
     }
 
     const auto step = mods.isShiftDown() ? 8 : 1;

@@ -166,6 +166,7 @@ PluginExporter::Gui PluginExporter::prepareGui (const GuiLayout& layout, const P
     {
         const auto& w = layout.widgets[i];
         const auto area = bake.movingArea[i];
+        const auto strip = i < bake.stripOf.size() ? bake.stripOf[i] : -1;
         const char* kind = nullptr;
         juce::String p1, p2, p3, p4, source;
 
@@ -183,16 +184,17 @@ PluginExporter::Gui PluginExporter::prepareGui (const GuiLayout& layout, const P
             case GuiWidget::Type::filter:    kind = "filter";   p1 = role (w, "cutoff"); p2 = role (w, "resonance"); break;
             case GuiWidget::Type::preset:    kind = "preset"; break;
             case GuiWidget::Type::keyboard:  kind = "keyboard"; break;
+            // Still things: in the background, unless they lie in front of something that
+            // moves; then a layer of their own (one frame), drawn over it.
+            case GuiWidget::Type::image:
             case GuiWidget::Type::label:
             case GuiWidget::Type::group:
-            case GuiWidget::Type::shape:
-            case GuiWidget::Type::image:     break;   // in the background
+            case GuiWidget::Type::shape:     kind = strip >= 0 ? "picture" : nullptr; break;
         }
 
         if (kind == nullptr || area.isEmpty())
             continue;
 
-        const auto strip = i < bake.stripOf.size() ? bake.stripOf[i] : -1;
         const auto colour = (w.colour.isTransparent() ? juce::Colour (0xffe5484d) : w.colour).getARGB();
         const auto vertical = w.type == GuiWidget::Type::slider ? (w.vertical ? 1 : 0) : (area.getHeight() >= area.getWidth() ? 1 : 0);
         // A keyboard's range: its lowest key in mode, its highest in count.
@@ -330,6 +332,7 @@ PluginExporter::Result PluginExporter::exportPlugins (const juce::File& projectF
     if (! WasmCompiler::writeRuntime (work)
         || ! writeData ("stella_clap.cpp", StellaRuntimeData::stella_clap_cpp, StellaRuntimeData::stella_clap_cppSize)
         || ! writeData ("stella_vst3.cpp", StellaRuntimeData::stella_vst3_cpp, StellaRuntimeData::stella_vst3_cppSize)
+        || ! writeData ("stella_standalone.cpp", StellaRuntimeData::stella_standalone_cpp, StellaRuntimeData::stella_standalone_cppSize)
         || ! writeData ("stella_gui.h", StellaRuntimeData::stella_gui_h, StellaRuntimeData::stella_gui_hSize)
         || ! writeData ("stella_gui.cpp", StellaRuntimeData::stella_gui_cpp, StellaRuntimeData::stella_gui_cppSize)
         || ! writeData ("stella_keys.h", StellaRuntimeData::stella_keys_h, StellaRuntimeData::stella_keys_hSize)
@@ -350,25 +353,33 @@ PluginExporter::Result PluginExporter::exportPlugins (const juce::File& projectF
     const auto baseName = juce::File::createLegalFileName (info.name);
     const auto builtClap = work.getChildFile (baseName + ".clap");
     const auto builtVst3 = work.getChildFile (baseName + ".vst3");
+    const auto builtApp = work.getChildFile (baseName + ".exe");
 
-    // One compile per format, both at once: the same sources apart from the wrapper.
-    auto commandFor = [&] (bool vst3)
+    // One compile per format, all at once: the same sources apart from the wrapper.
+    enum class Target { clap, vst3, app };
+
+    auto commandFor = [&] (Target target)
     {
         juce::StringArray args;
         args.add (compilerIn (toolchain).getFullPathName());
-        args.addArray ({ "-O2", "-std=c++17", "-shared", "-static", "-fvisibility=hidden", "-fno-exceptions", "-fno-rtti", "-DNDEBUG", "-Wall" });
+        args.addArray ({ "-O2", "-std=c++17", "-static", "-fvisibility=hidden", "-fno-exceptions", "-fno-rtti", "-DNDEBUG", "-Wall" });
+        args.add (target == Target::app ? "-mwindows" : "-shared");   // an app with a window, or a plugin library
         args.add ("-I" + work.getFullPathName());
         args.add ("-I" + modules.getFullPathName());
-        args.add ("-I" + (vst3 ? vst3Headers : clapHeaders).getFullPathName());
+
+        if (target != Target::app)
+            args.add ("-I" + (target == Target::vst3 ? vst3Headers : clapHeaders).getFullPathName());
+
         args.add ("-o");
-        args.add ((vst3 ? builtVst3 : builtClap).getFullPathName());
+        args.add ((target == Target::vst3 ? builtVst3 : target == Target::clap ? builtClap : builtApp).getFullPathName());
 
         for (const auto* source : { "stella_runtime.cpp", "stella_graph.cpp", "stella_gui.cpp", "stella_gui_win32.cpp", "stella_gui_data.cpp" })
             args.add (work.getChildFile (source).getFullPathName());
 
-        args.add (work.getChildFile (vst3 ? "stella_vst3.cpp" : "stella_clap.cpp").getFullPathName());
+        args.add (work.getChildFile (target == Target::vst3 ? "stella_vst3.cpp"
+                                   : target == Target::clap ? "stella_clap.cpp" : "stella_standalone.cpp").getFullPathName());
 
-        if (vst3)
+        if (target == Target::vst3)
             args.add (vst3Headers.getChildFile ("pluginterfaces").getChildFile ("base").getChildFile ("funknown.cpp").getFullPathName());
 
         for (const auto& file : moduleFiles)
@@ -376,16 +387,20 @@ PluginExporter::Result PluginExporter::exportPlugins (const juce::File& projectF
 
         args.addArray ({ "-Wl,--strip-all", "-luser32", "-lgdi32" });
 
-        if (vst3)
+        if (target != Target::clap)
             args.add ("-lole32");
+
+        if (target == Target::app)
+            args.add ("-lwinmm");   // MIDI inputs
 
         return args;
     };
 
-    juce::ChildProcess clapCompiler, vst3Compiler;
+    juce::ChildProcess clapCompiler, vst3Compiler, appCompiler;
 
-    if (! clapCompiler.start (commandFor (false), juce::ChildProcess::wantStdOut | juce::ChildProcess::wantStdErr)
-        || ! vst3Compiler.start (commandFor (true), juce::ChildProcess::wantStdOut | juce::ChildProcess::wantStdErr))
+    if (! clapCompiler.start (commandFor (Target::clap), juce::ChildProcess::wantStdOut | juce::ChildProcess::wantStdErr)
+        || ! vst3Compiler.start (commandFor (Target::vst3), juce::ChildProcess::wantStdOut | juce::ChildProcess::wantStdErr)
+        || ! appCompiler.start (commandFor (Target::app), juce::ChildProcess::wantStdOut | juce::ChildProcess::wantStdErr))
     {
         result.log = "The plugin compiler couldn't be started.";
         return result;
@@ -400,20 +415,26 @@ PluginExporter::Result PluginExporter::exportPlugins (const juce::File& projectF
 
     const auto clapLog = tidy (clapCompiler.readAllProcessOutput());
     const auto vst3Log = tidy (vst3Compiler.readAllProcessOutput());
+    const auto appLog = tidy (appCompiler.readAllProcessOutput());
     clapCompiler.waitForProcessToFinish (5000);
     vst3Compiler.waitForProcessToFinish (5000);
+    appCompiler.waitForProcessToFinish (5000);
 
     const bool clapOk = clapCompiler.getExitCode() == 0 && builtClap.existsAsFile();
     const bool vst3Ok = vst3Compiler.getExitCode() == 0 && builtVst3.existsAsFile();
+    const bool appOk = appCompiler.getExitCode() == 0 && builtApp.existsAsFile();
 
     result.log = clapLog;
 
     if (! vst3Ok && vst3Log.isNotEmpty() && vst3Log != clapLog)
         result.log << (result.log.isNotEmpty() ? "\n\n" : "") << "VST3:\n" << vst3Log;
 
+    if (! appOk && appLog.isNotEmpty() && appLog != clapLog)
+        result.log << (result.log.isNotEmpty() ? "\n\n" : "") << "Standalone app:\n" << appLog;
+
     result.seconds = (juce::Time::getMillisecondCounterHiRes() - started) / 1000.0;
 
-    if (! clapOk || ! vst3Ok)
+    if (! clapOk || ! vst3Ok || ! appOk)
     {
         if (result.log.isEmpty())
             result.log = "The plugin compiler stopped without saying why.";
@@ -421,10 +442,11 @@ PluginExporter::Result PluginExporter::exportPlugins (const juce::File& projectF
         return result;
     }
 
-    // Into the exports folder: <name>.clap, and the VST3 bundle <name>.vst3\Contents\x86_64-win\<name>.vst3.
-    // A DAW holding an old file locked makes this fail: say so.
+    // Into the exports folder: <name>.clap, the VST3 bundle <name>.vst3\Contents\x86_64-win\<name>.vst3,
+    // and <name>.exe. A DAW holding an old file locked (or the app running) makes this fail: say so.
     destinationFolder.createDirectory();
     const auto clapTarget = destinationFolder.getChildFile (baseName + ".clap");
+    const auto appTarget = destinationFolder.getChildFile (baseName + ".exe");
     const auto bundle = destinationFolder.getChildFile (baseName + ".vst3");
 
     if (bundle.existsAsFile())
@@ -440,8 +462,17 @@ PluginExporter::Result PluginExporter::exportPlugins (const juce::File& projectF
         return result;
     }
 
+    if (! builtApp.copyFileTo (appTarget))
+    {
+        result.log = (result.log.isNotEmpty() ? result.log + "\n\n" : juce::String())
+                   + "Couldn't write " + appTarget.getFileName() + " into " + destinationFolder.getFullPathName()
+                   + ". If the app is open, close it and export again.";
+        return result;
+    }
+
     result.ok = true;
     result.plugin = clapTarget;
     result.vst3 = bundle;
+    result.app = appTarget;
     return result;
 }

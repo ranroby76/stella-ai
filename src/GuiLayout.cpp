@@ -155,7 +155,42 @@ GuiLayout GuiLayout::fromVar (const juce::var& json)
         for (const auto& item : *list)
             layout.widgets.push_back (widgetFromVar (item));
 
+    // A background picture is a picture element covering the window, at the back (layouts
+    // from before, or Stella AI's "background": { "image" }, become one), so it can be
+    // stretched and layered like any other. One that's there already takes the new picture.
+    if (layout.backgroundImage.isNotEmpty())
+    {
+        const juce::Rectangle<int> window (0, 0, layout.width, layout.height);
+        auto& widgets = layout.widgets;
+
+        if (! widgets.empty() && widgets.front().type == GuiWidget::Type::image && widgets.front().bounds.contains (window))
+        {
+            widgets.front().image = layout.backgroundImage;
+            widgets.front().mode = layout.backgroundMode;
+        }
+        else
+        {
+            GuiWidget backdrop;
+            backdrop.type = GuiWidget::Type::image;
+            backdrop.image = layout.backgroundImage;
+            backdrop.mode = layout.backgroundMode;
+            backdrop.bounds = window;
+            widgets.insert (widgets.begin(), backdrop);
+        }
+
+        layout.backgroundImage.clear();
+    }
+
     return layout;
+}
+
+juce::String GuiLayout::backgroundPicture() const
+{
+    for (const auto& w : widgets)
+        if (w.type == GuiWidget::Type::image && w.image.isNotEmpty() && w.bounds.contains (juce::Rectangle<int> (0, 0, width, height)))
+            return w.image;
+
+    return {};
 }
 
 juce::var GuiLayout::toVar() const

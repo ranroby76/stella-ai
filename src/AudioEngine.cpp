@@ -259,6 +259,7 @@ void AudioEngine::raisePeak (std::atomic<float>& peak, float value) noexcept
 void AudioEngine::allNotesOff()
 {
     keyboardState.allNotesOff (0);
+    panicRequested.store (true);
     silenceRequested.store (true);
 }
 
@@ -334,6 +335,13 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* inputCha
         if (lock.isLocked() && plugin != nullptr)
         {
             int numEvents = 0;
+
+            // Panic: "all notes off" and "all sound off" first, so every voice lets go.
+            if (panicRequested.exchange (false))
+            {
+                pluginEvents[(size_t) numEvents++] = { 0, 0xb0, 123, 0 };
+                pluginEvents[(size_t) numEvents++] = { 0, 0xb0, 120, 0 };
+            }
 
             for (const auto metadata : midiBuffer)
             {

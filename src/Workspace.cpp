@@ -33,13 +33,17 @@ Workspace::PluginView::PluginView()
     logButton.setTooltip ("The compiler's messages from the last build");
     logButton.onClick = [this] { if (onShowLog != nullptr) onShowLog(); };
 
-    exportButton.setTooltip ("Build the plugin as files your DAW loads (CLAP and VST3, Windows 64-bit)");
+    exportButton.setTooltip ("Build the plugin as files your DAW loads (CLAP and VST3) and as an app that runs on its own (Windows 64-bit)");
     exportButton.onClick = [this] { if (onExport != nullptr) onExport(); };
+
+    panicButton.setTooltip ("Panic: stop every note that's sounding, stuck ones too");
+    panicButton.setColour (juce::TextButton::textColourOffId, juce::Colour (0xffff8a80));
+    panicButton.onClick = [this] { if (onPanic != nullptr) onPanic(); };
 
     autoButton.setTooltip ("Replace the GUI with a plain automatic one: a group per module, a control per parameter");
     autoButton.onClick = [this] { if (onAutoLayout != nullptr) onAutoLayout(); };
 
-    for (auto* c : std::initializer_list<juce::Component*> { &editTab, &playTab, &rebuildButton, &logButton, &exportButton })
+    for (auto* c : std::initializer_list<juce::Component*> { &editTab, &playTab, &rebuildButton, &logButton, &exportButton, &panicButton })
         addChildComponent (c);
 
     presetBox.setTextWhenNothingSelected ("No preset");
@@ -102,7 +106,7 @@ void Workspace::PluginView::setProject (const juce::String& name, const juce::St
 
     const bool hasProject = projectName.isNotEmpty();
 
-    for (auto* c : std::initializer_list<juce::Component*> { &editTab, &playTab, &rebuildButton, &logButton, &exportButton })
+    for (auto* c : std::initializer_list<juce::Component*> { &editTab, &playTab, &rebuildButton, &logButton, &exportButton, &panicButton })
         c->setVisible (hasProject);
 
     canvas.setVisible (true);   // the grid shows even with nothing on it
@@ -217,10 +221,12 @@ void Workspace::PluginView::paint (juce::Graphics& g)
 
 void Workspace::PluginView::resized()
 {
-    // The bar: the Edit and Play tabs, the build's state, then Export, Rebuild and Log.
+    // The bar: the Edit and Play tabs, Panic, the build's state, then Export, Rebuild and Log.
     auto bar = getLocalBounds().removeFromTop (barHeight).reduced (16, 9);
     editTab.setBounds (bar.removeFromLeft (84));
     playTab.setBounds (bar.removeFromLeft (84));
+    bar.removeFromLeft (10);
+    panicButton.setBounds (bar.removeFromLeft (76));
     bar.removeFromLeft (18);
 
     logButton.setBounds (bar.removeFromRight (64));
@@ -299,6 +305,7 @@ Workspace::Workspace()
     pluginView.onBuild      = [this] { if (onBuildRequested != nullptr) onBuildRequested(); };
     pluginView.onShowLog    = [this] { if (onShowLogRequested != nullptr) onShowLogRequested(); };
     pluginView.onExport     = [this] { if (onExportRequested != nullptr) onExportRequested(); };
+    pluginView.onPanic      = [this] { if (onPanicRequested != nullptr) onPanicRequested(); };
     pluginView.onSavePreset = [this] { if (onSavePreset != nullptr) onSavePreset(); };
     pluginView.onAbCopy     = [this] { if (onAbCopy != nullptr) onAbCopy(); };
     pluginView.onPresetChosen = [this] (int i) { if (onPresetChosen != nullptr) onPresetChosen (i); };

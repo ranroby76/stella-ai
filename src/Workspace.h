@@ -85,6 +85,7 @@ public:
     std::function<void()> onBuildRequested;
     std::function<void()> onShowLogRequested;
     std::function<void()> onExportRequested;
+    std::function<void()> onPanicRequested;   // the Panic button: every note off
     std::function<void()> onAutoLayoutRequested;
     std::function<void()> onLayoutEdited;
     std::function<void (int index, float value)> onParameterChanged;
@@ -124,7 +125,7 @@ private:
         void setPresets (const juce::StringArray& names, int selected);
         void setAbSlot (int slot);
 
-        std::function<void()> onBuild, onShowLog, onExport, onAutoLayout, onSavePreset, onAbCopy;
+        std::function<void()> onBuild, onShowLog, onExport, onAutoLayout, onSavePreset, onAbCopy, onPanic;
         std::function<void (int)> onPresetChosen, onDeletePreset, onAbChosen;
         std::function<void (bool playMode)> onMode;
 
@@ -142,6 +143,7 @@ private:
         // Two tabs: Edit (reshape the panel) and Play (the panel locked, its controls live).
         juce::TextButton editTab { "Edit" }, playTab { "Play" };
         juce::TextButton rebuildButton { "Rebuild" }, logButton { "Log" }, exportButton { "Export" };
+        juce::TextButton panicButton { "Panic" };   // every note off: stuck notes stop
 
         // The Edit tab's row: start over with an automatic panel.
         juce::TextButton autoButton { "Auto layout" };

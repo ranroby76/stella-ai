@@ -391,7 +391,7 @@ namespace stella::gui
                 playKey (index, x, y);
                 break;
 
-            case Kind::meter: case Kind::lamp: case Kind::scope: case Kind::envelope: case Kind::filter:
+            case Kind::meter: case Kind::lamp: case Kind::scope: case Kind::envelope: case Kind::filter: case Kind::picture:
                 break;
         }
     }
@@ -792,6 +792,11 @@ namespace stella::gui
                 case Kind::preset:
                     if (image != nullptr)
                         blitFrame (pixels, *image, strip->frameHeight, std::min (strip->frames - 1, std::max (0, currentPreset)), w.x, w.y);
+                    break;
+
+                case Kind::picture:   // in front of what's under it
+                    if (image != nullptr)
+                        blitFrame (pixels, *image, strip->frameHeight, 0, w.x, w.y);
                     break;
 
                 case Kind::meter:     drawMeter (pixels, w, i); break;

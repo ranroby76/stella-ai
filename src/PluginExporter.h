@@ -13,14 +13,15 @@
 
 //==============================================================================
 /**
-    Export: turns a project into plugin files a DAW loads, CLAP and VST3, built on the
-    user's own computer with the compiler that ships with the studio (llvm-mingw). The
-    plugins have no JUCE in them: the project's modules, the Stella runtime, the baked GUI
-    and a wrapper per format (stella_clap.cpp, stella_vst3.cpp), compiled natively and
-    linked statically, so they need nothing installed beside them.
+    Export: turns a project into plugin files a DAW loads, CLAP and VST3, and a standalone
+    app that runs on its own, built on the user's own computer with the compiler that ships
+    with the studio (llvm-mingw). They have no JUCE in them: the project's modules, the
+    Stella runtime, the baked GUI and a wrapper per format (stella_clap.cpp,
+    stella_vst3.cpp, stella_standalone.cpp), compiled natively and linked statically, so
+    they need nothing installed beside them.
 
-    Plugins land in Documents\Stella AI Studio\Exports\<plugin name>: <name>.clap, and
-    <name>.vst3 as a VST3 bundle folder.
+    They land in Documents\Stella AI Studio\Exports\<plugin name>: <name>.clap, <name>.vst3
+    as a VST3 bundle folder, and <name>.exe.
 */
 class PluginExporter final
 {
@@ -31,6 +32,7 @@ public:
         juce::String log;        // the compiler's messages, or what went wrong
         juce::File plugin;       // the CLAP file, when ok
         juce::File vst3;         // the VST3 bundle, when ok
+        juce::File app;          // the standalone app, when ok
         double seconds = 0.0;
     };
 
@@ -59,8 +61,8 @@ public:
                            const std::map<juce::String, juce::String>& unitsById, const juce::StringArray& displayIds,
                            const std::vector<Preset>& presets);
 
-    /** Builds the CLAP and VST3 plugins (side by side). Takes a few seconds: call it on a
-        worker thread. */
+    /** Builds the CLAP and VST3 plugins and the standalone app (side by side). Takes a few
+        seconds: call it on a worker thread. */
     static Result exportPlugins (const juce::File& projectFolder, const ProjectInfo& info, const juce::File& destinationFolder,
                                  const Gui& gui);
 

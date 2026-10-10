@@ -79,7 +79,8 @@ public:
     void setTestToneEnabled (bool shouldBeOn) noexcept    { testToneOn.store (shouldBeOn); }
     bool isTestToneEnabled() const noexcept               { return testToneOn.load(); }
 
-    /** Silences everything that's sounding (and the on-screen keyboard's held keys). */
+    /** Panic: silences everything that's sounding. The plugin gets "all notes off" (every
+        voice is let go, stuck ones too), the keyboards' held keys go up, the test tone stops. */
     void allNotesOff();
 
     /** Message thread. Swaps the playing plugin (null: none); the old one is deleted here. */
@@ -124,6 +125,7 @@ private:
     std::atomic<double> currentRate { 48000.0 };
     std::atomic<int> currentBlockSize { 512 };
     std::atomic<bool> silenceRequested { false };
+    std::atomic<bool> panicRequested { false };
 
     std::array<std::atomic<float>, 2> peaks { 0.0f, 0.0f };
 

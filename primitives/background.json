@@ -3,6 +3,6 @@
   "category": "Pictures & text",
   "order": 210,
   "icon": "background",
-  "description": "A picture behind the whole plugin window.",
+  "description": "A picture filling the plugin window, behind everything. Drag its corners and sides to stretch it; right-click it to change its layer.",
   "action": "background"
 }

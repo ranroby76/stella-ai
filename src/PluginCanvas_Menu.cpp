@@ -143,15 +143,12 @@ PluginCanvas::ElementMenu::ElementMenu (PluginCanvas& owner)
         type.addItem (PluginCanvas::typeDisplayName (typeOrder[i]), i + 1);
 
     pictureMode.addItemList (GuiLayout::pictureModeNames(), 1);
-    backgroundMode.addItemList (GuiLayout::pictureModeNames(), 1);
 
     for (auto* box : { &type, &param, &source, &mode, &style, &pictureMode, &lowKey, &highKey })
         box->onChange = [this] { apply(); };
 
     for (auto& box : roles)
         box.onChange = [this] { apply(); };
-
-    backgroundMode.onChange = [this] { applyWindow(); };
 
     for (auto* editor : { &label, &options, &textSize, &widthBox, &heightBox })
     {
@@ -185,15 +182,10 @@ PluginCanvas::ElementMenu::ElementMenu (PluginCanvas& owner)
     pictureButton.setTooltip ("Choose the picture it shows (PNG, JPEG or GIF): it's copied into the project");
     pictureButton.onClick = [this] { canvas.choosePicture (widget); };
 
-    backgroundButton.setTooltip ("Choose the picture behind the whole window: it's copied into the project");
+    backgroundButton.setTooltip ("A picture behind everything, filling the window (it's copied into the project). "
+                                 "Drag its corners and sides to stretch it; right-click it to change its layer");
+    backgroundButton.setButtonText (juce::String::fromUTF8 ("Add a background picture\xe2\x80\xa6"));
     backgroundButton.onClick = [this] { canvas.choosePicture (-1); };
-
-    removeBackgroundButton.onClick = [this]
-    {
-        canvas.layout.backgroundImage.clear();
-        canvas.edited();
-        showFor (-1);
-    };
 
     knobStudioButton.setTooltip ("Open its look in the Knob Studio: layers, bevels, textures, the KnobMan gallery");
     knobStudioButton.onClick = [this]
@@ -228,8 +220,7 @@ PluginCanvas::ElementMenu::ElementMenu (PluginCanvas& owner)
     // ...and the window's.
     addRow ("Window size (width, height)", widthBox, &heightBox, 0.5f);
     addRow ("Background colours (top, bottom)", topColour, &bottomColour, 0.5f, 22);
-    addRow ("Background picture", backgroundButton, &removeBackgroundButton, 0.66f);
-    addRow ("Picture fit", backgroundMode);
+    addRow ("Background picture", backgroundButton);
 
     viewport.setViewedComponent (&rows, false);
     viewport.setScrollBarsShown (true, false);
@@ -311,14 +302,10 @@ void PluginCanvas::ElementMenu::showFor (int widgetIndex)
         heightBox.setText (juce::String (l.height), juce::dontSendNotification);
         topColour.setColourValue (l.backgroundTop, juce::dontSendNotification);
         bottomColour.setColourValue (l.backgroundBottom, juce::dontSendNotification);
-        backgroundButton.setButtonText (pictureChoice (l.backgroundImage));
-        removeBackgroundButton.setEnabled (l.backgroundImage.isNotEmpty());
-        backgroundMode.setSelectedId (juce::jmax (0, GuiLayout::pictureModes().indexOf (l.backgroundMode)) + 1, juce::dontSendNotification);
 
         setShown (widthBox, true);
         setShown (topColour, true);
         setShown (backgroundButton, true);
-        setShown (backgroundMode, l.backgroundImage.isNotEmpty());
 
         instruction.setTextToShowWhenEmpty ("e.g. a dark wooden look with brass knobs", Theme::muted);
     }
@@ -631,11 +618,17 @@ void PluginCanvas::ElementMenu::applyWindow()
     const auto newHeight = juce::jlimit (GuiLayout::minHeight, GuiLayout::maxHeight, heightBox.getText().getIntValue());
     const bool resizedWindow = newWidth != l.width || newHeight != l.height;
 
+    // A picture filling the window keeps filling it.
+    const juce::Rectangle<int> oldWindow (0, 0, l.width, l.height);
+
+    for (auto& w : l.widgets)
+        if (w.type == GuiWidget::Type::image && w.bounds == oldWindow)
+            w.bounds = { 0, 0, newWidth, newHeight };
+
     l.width = newWidth;
     l.height = newHeight;
     l.backgroundTop = topColour.getColourValue();
     l.backgroundBottom = bottomColour.getColourValue();
-    l.backgroundMode = GuiLayout::pictureModes()[juce::jmax (0, backgroundMode.getSelectedId() - 1)];
 
     subtitle = juce::String (l.width) + juce::String::fromUTF8 (" \xc3\x97 ") + juce::String (l.height);
     repaint (headerArea);

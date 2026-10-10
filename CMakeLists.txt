@@ -63,6 +63,7 @@ juce_add_binary_data(StellaRuntimeData
         src/stella_runtime.cpp
         src/stella_clap.cpp
         src/stella_vst3.cpp
+        src/stella_standalone.cpp
         src/stella_gui.h
         src/stella_gui.cpp
         src/stella_gui_win32.cpp
