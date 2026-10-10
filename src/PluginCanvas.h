@@ -43,7 +43,10 @@ class WasmElements;
 
     Elements lie in layers, in the layout's order: the first at the back. Right-click one
     for Bring to front, Bring forward, Send backward, Send to back (also Ctrl+Shift+],
-    Ctrl+], Ctrl+[, Ctrl+Shift+[). A background picture is a picture element covering the
+    Ctrl+], Ctrl+[, Ctrl+Shift+[), and for Copy, Paste and Duplicate (Ctrl+C, Ctrl+V,
+    Ctrl+D): a copied frame takes what's inside it along, and a paste lands where the
+    menu was opened (Ctrl+V: under the mouse). Copies go through the system clipboard, so
+    they paste into another project too. A background picture is a picture element covering the
     window at the back; until it's selected, dragging it moves the view, as empty space does.
 
     Knobs, sliders and switches are drawn from their looks (see Looks): a frame for each
@@ -322,8 +325,15 @@ private:
     // Layers: the layout's order, the first element at the back.
     enum class Order { front, forward, backward, back };
     void reorder (int index, Order order);
-    void showElementPopup (int index);
-    void showWindowPopup();
+    void showElementPopup (int index, juce::Point<float> plugin);
+    void showWindowPopup (juce::Point<float> plugin);
+
+    // Copy and paste: elements as JSON on the system clipboard.
+    void copyElement (int index);                                  // a frame with what's inside it
+    std::vector<GuiWidget> clipboardElements() const;              // empty: nothing of ours there
+    void pasteElements (std::optional<juce::Point<float>> at);     // at: where their top-left goes (plugin
+                                                                   // pixels); none: a step beside the copies
+    int pasteCount = 0;                                            // pastes since the copy, each a step further
 
     /** A picture covering the whole window: the background. */
     bool isBackdrop (const GuiWidget& w) const;

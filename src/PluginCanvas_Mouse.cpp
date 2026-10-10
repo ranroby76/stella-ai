@@ -319,7 +319,98 @@ void PluginCanvas::reorder (int index, Order order)
     edited();
 }
 
-void PluginCanvas::showElementPopup (int index)
+//==============================================================================
+// Copy and paste
+namespace
+{
+    constexpr const char* clipboardKey = "stellaElements";   // what marks the clipboard's text as ours
+}
+
+void PluginCanvas::copyElement (int index)
+{
+    if (! juce::isPositiveAndBelow (index, (int) layout.widgets.size()))
+        return;
+
+    // A frame takes what's inside it along, in their layers' order.
+    const auto& copied = layout.widgets[(size_t) index];
+    juce::Array<juce::var> list;
+
+    for (int i = 0; i < (int) layout.widgets.size(); ++i)
+    {
+        const auto& w = layout.widgets[(size_t) i];
+        const bool inside = copied.type == GuiWidget::Type::group && i != index && copied.bounds.contains (w.bounds) && ! isBackdrop (w);
+
+        if (i == index || inside)
+            list.add (GuiLayout::widgetToVar (w));
+    }
+
+    auto json = juce::var (new juce::DynamicObject());
+    json.getDynamicObject()->setProperty (clipboardKey, list);
+    juce::SystemClipboard::copyTextToClipboard (juce::JSON::toString (json));
+    pasteCount = 0;
+}
+
+std::vector<GuiWidget> PluginCanvas::clipboardElements() const
+{
+    std::vector<GuiWidget> result;
+    const auto text = juce::SystemClipboard::getTextFromClipboard();
+
+    if (! text.containsIgnoreCase (clipboardKey))
+        return result;
+
+    const auto parsed = juce::JSON::parse (text);   // kept: the list lives inside it
+    const auto copied = parsed.getProperty (clipboardKey, {});
+
+    if (const auto* list = copied.getArray())
+        for (const auto& item : *list)
+            if (item.isObject())
+                result.push_back (GuiLayout::widgetFromVar (item));
+
+    return result;
+}
+
+void PluginCanvas::pasteElements (std::optional<juce::Point<float>> at)
+{
+    auto pasted = clipboardElements();
+
+    if (pasted.empty() || ! design || ! hasPanel())
+        return;
+
+    juce::Rectangle<int> area = pasted.front().bounds;
+
+    for (const auto& w : pasted)
+        area = area.getUnion (w.bounds);
+
+    // Where the menu was opened, or a step beside the copies (one more for each paste).
+    juce::Point<int> target;
+
+    if (at.has_value())
+    {
+        target = { snapped (at->x), snapped (at->y) };
+    }
+    else
+    {
+        ++pasteCount;
+        target = area.getPosition() + juce::Point<int> (snapStep * 4 * pasteCount, snapStep * 4 * pasteCount);
+    }
+
+    // Inside the window, where it fits.
+    target.x = juce::jlimit (0, juce::jmax (0, layout.width - area.getWidth()), target.x);
+    target.y = juce::jlimit (0, juce::jmax (0, layout.height - area.getHeight()), target.y);
+    const auto offset = target - area.getPosition();
+    const auto first = (int) layout.widgets.size();
+
+    for (auto& w : pasted)
+    {
+        w.bounds.translate (offset.x, offset.y);
+        layout.widgets.push_back (w);
+    }
+
+    select (first);
+    edited();
+}
+
+void PluginCanvas::showElementPopup (int index, juce::Point<float> plugin)
 {
     if (! juce::isPositiveAndBelow (index, (int) layout.widgets.size()))
         return;
@@ -342,13 +433,17 @@ void PluginCanvas::showElementPopup (int index)
     menuItems.addItem (item (3, "Send backward", index > 0, "Ctrl+["));
     menuItems.addItem (item (4, "Send to back", index > 0, "Ctrl+Shift+["));
     menuItems.addSeparator();
+    menuItems.addItem (item (8, "Copy", true, "Ctrl+C"));
+    menuItems.addItem (item (9, "Paste", ! clipboardElements().empty(), "Ctrl+V"));
+    menuItems.addItem (item (10, "Duplicate", true, "Ctrl+D"));
+    menuItems.addSeparator();
     menuItems.addItem (item (5, "Edit", true, ""));
     menuItems.addItem (item (6, "Delete", true, "Del"));
     menuItems.addSeparator();
     menuItems.addItem (item (7, "Window size and colours", true, ""));
 
     menuItems.showMenuAsync (juce::PopupMenu::Options().withMousePosition(),
-                             [safeThis = juce::Component::SafePointer<PluginCanvas> (this), index] (int choice)
+                             [safeThis = juce::Component::SafePointer<PluginCanvas> (this), index, plugin] (int choice)
                              {
                                  if (safeThis == nullptr || ! juce::isPositiveAndBelow (index, (int) safeThis->layout.widgets.size()))
                                      return;
@@ -364,20 +459,30 @@ void PluginCanvas::showElementPopup (int index)
                                      case 5: safeThis->select (index); safeThis->openMenu(); break;
                                      case 6: safeThis->select (index); safeThis->removeSelected(); break;
                                      case 7: safeThis->selectPanel(); safeThis->openMenu(); break;
+                                     case 8: safeThis->copyElement (index); break;
+                                     case 9: safeThis->pasteElements (plugin); break;
+                                     case 10: safeThis->copyElement (index); safeThis->pasteElements ({}); break;
                                      default: break;
                                  }
                              });
 }
 
-void PluginCanvas::showWindowPopup()
+void PluginCanvas::showWindowPopup (juce::Point<float> plugin)
 {
     juce::PopupMenu menuItems;
     menuItems.addSectionHeader ("Plugin window");
     menuItems.addItem (1, "Window size and colours");
     menuItems.addItem (2, juce::String::fromUTF8 ("Add a background picture\xe2\x80\xa6"));
+    menuItems.addSeparator();
+
+    juce::PopupMenu::Item paste ("Paste");
+    paste.itemID = 3;
+    paste.isEnabled = ! clipboardElements().empty();
+    paste.shortcutKeyDescription = "Ctrl+V";
+    menuItems.addItem (paste);
 
     menuItems.showMenuAsync (juce::PopupMenu::Options().withMousePosition(),
-                             [safeThis = juce::Component::SafePointer<PluginCanvas> (this)] (int choice)
+                             [safeThis = juce::Component::SafePointer<PluginCanvas> (this), plugin] (int choice)
                              {
                                  if (safeThis == nullptr)
                                      return;
@@ -392,6 +497,10 @@ void PluginCanvas::showWindowPopup()
                                  else if (choice == 2)
                                  {
                                      safeThis->choosePicture (-1);
+                                 }
+                                 else if (choice == 3)
+                                 {
+                                     safeThis->pasteElements (plugin);
                                  }
                              });
 }
@@ -614,11 +723,11 @@ void PluginCanvas::mouseDown (const juce::MouseEvent& e)
             if (index >= 0)
             {
                 select (index);
-                showElementPopup (index);
+                showElementPopup (index, plugin);
             }
             else if (insidePanel)
             {
-                showWindowPopup();
+                showWindowPopup (plugin);
             }
 
             return;
@@ -1193,8 +1302,36 @@ bool PluginCanvas::keyPressed (const juce::KeyPress& key)
         return true;
     }
 
+    // Ctrl + a letter (some systems give the key's code in lower case, some in upper).
+    auto ctrlAnd = [&] (char letter)
+    {
+        return (mods.isCtrlDown() || mods.isCommandDown())
+            && juce::CharacterFunctions::toUpperCase ((juce::juce_wchar) key.getKeyCode()) == (juce::juce_wchar) letter;
+    };
+
+    // Ctrl+V pastes under the mouse (or a step beside the copies, with the mouse elsewhere).
+    if (ctrlAnd ('V') && hasPanel())
+    {
+        const auto mouse = getMouseXYRelative().toFloat();
+        pasteElements (panelArea().contains (mouse) ? std::optional<juce::Point<float>> (toPlugin (mouse)) : std::nullopt);
+        return true;
+    }
+
     if (selected < 0)
         return false;
+
+    if (ctrlAnd ('C'))
+    {
+        copyElement (selected);
+        return true;
+    }
+
+    if (ctrlAnd ('D'))
+    {
+        copyElement (selected);
+        pasteElements ({});
+        return true;
+    }
 
     if (key == juce::KeyPress::deleteKey || key == juce::KeyPress::backspaceKey)
     {
