@@ -18,7 +18,8 @@
     with the studio (llvm-mingw). They have no JUCE in them: the project's modules, the
     Stella runtime, the baked GUI and a wrapper per format (stella_clap.cpp,
     stella_vst3.cpp, stella_standalone.cpp), compiled natively and linked statically, so
-    they need nothing installed beside them.
+    they need nothing installed beside them. A protected project (see Protection) gets
+    Fanan's registration compiled in: a Machine ID, a serial, and the demo until then.
 
     They land in Documents\Stella AI Studio\Exports\<plugin name>: <name>.clap, <name>.vst3
     as a VST3 bundle folder, and <name>.exe.
@@ -34,6 +35,7 @@ public:
         juce::File vst3;         // the VST3 bundle, when ok
         juce::File app;          // the standalone app, when ok
         double seconds = 0.0;
+        bool isProtected = false; // registration compiled in
     };
 
     /** The plugin's GUI, baked and ready to compile in: images as PNG, widgets as C++. */
@@ -58,6 +60,8 @@ public:
         juce::String customArrays, customRows;   // programmed elements: what each one's widget tells it, as C++
         int numCustom = 0;
         juce::StringArray elementTypes;          // the programmed elements the window uses
+
+        juce::MemoryBlock licenceBadge;          // "Unregistered": a protected plugin shows it until registered (PNG)
     };
 
     /** On the message thread: encodes the canvas's bake and describes each widget. */

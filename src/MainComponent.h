@@ -44,6 +44,8 @@ public:
     void playFinishSound();   // Stella AI has finished
     void saveProject();     // what's waiting is written now
     void saveProjectAs();   // a copy in a new folder, under a new name, and work goes on there
+    void toggleProtection();      // Fanan's registration in the exported plugin, or not
+    void openSerialGenerator();   // the plugin's serial generator page, in the browser
 
 private:
     void projectChanged();

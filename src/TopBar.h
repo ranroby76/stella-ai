@@ -51,6 +51,9 @@ public:
     std::function<void()> onRevealProject;
     std::function<void()> onToggleFinishSound;   // the "Sound when Stella AI finishes" item
     std::function<bool()> isFinishSoundOn;
+    std::function<void()> onToggleProtection;    // "Protect with a serial number"
+    std::function<bool()> isProtectionOn;
+    std::function<void()> onSerialGenerator;     // writes the plugin's serial generator page and opens it
     std::function<void()> onCloseProject;
     std::function<void (const juce::File& projectFile)> onOpenRecent;
 

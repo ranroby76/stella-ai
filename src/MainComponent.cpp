@@ -2,6 +2,7 @@
 
 #include "MainComponent.h"
 #include "GuiLayout.h"
+#include "Protection.h"
 #include "StellaLookAndFeel.h"
 #include "WasmCompiler.h"
 
@@ -120,6 +121,10 @@ MainComponent::MainComponent (Settings& s)
         if (settings.getFinishSound())
             playFinishSound();   // so it's heard what it sounds like
     };
+
+    topBar.isProtectionOn = [this] { return project.isOpen() && Protection::load (project.getFolder()).isOn(); };
+    topBar.onToggleProtection = [this] { toggleProtection(); };
+    topBar.onSerialGenerator = [this] { openSerialGenerator(); };
 
     topBar.recentProjects = [this] { return settings.getRecentProjects(); };
 
@@ -971,7 +976,11 @@ void MainComponent::exportFinished (const PluginExporter::Result& result)
                                        "For your DAW, copy the plugins into the folders it scans, then rescan plugins:\n"
                                        "CLAP: %LOCALAPPDATA%\\Programs\\Common\\CLAP or C:\\Program Files\\Common Files\\CLAP\n"
                                        "VST3 (the whole folder): %LOCALAPPDATA%\\Programs\\Common\\VST3 or C:\\Program Files\\Common Files\\VST3\n"
-                                       "The folders under %LOCALAPPDATA% need no admin rights.")
+                                       "The folders under %LOCALAPPDATA% need no admin rights."
+                                     + juce::String (result.isProtected
+                                                         ? "\n\nProtected: it plays in demo mode until it's registered. Make serial numbers "
+                                                           "with Options > Serial generator."
+                                                         : ""))
                        .withButton ("Show in folder")
                        .withButton ("OK")
                        .withAssociatedComponent (this);
@@ -1197,6 +1206,80 @@ void MainComponent::saveProject()
     topBar.showNotice ("Saved");
 }
 
+void MainComponent::toggleProtection()
+{
+    if (! project.isOpen())
+        return;
+
+    const auto folder = project.getFolder();
+    auto protection = Protection::load (folder);
+    const bool turningOn = ! protection.isOn();
+
+    protection.setOn (turningOn);
+
+    if (const auto saved = protection.save (folder); saved.failed())
+    {
+        showError ("Couldn't change the protection", saved.getErrorMessage());
+        return;
+    }
+
+    if (! turningOn)
+    {
+        topBar.showNotice ("Protection off: the next export plays freely");
+        return;
+    }
+
+    const auto name = project.getInfo().name;
+
+    auto options = juce::MessageBoxOptions()
+                       .withTitle ("Protected with a serial number")
+                       .withIconType (juce::MessageBoxIconType::NoIcon)
+                       .withMessage ("From the next export, " + name + " asks for a serial number. Until it's registered it plays "
+                                     "in demo mode: 18 seconds of sound, then 3 seconds of silence, over and over, with an "
+                                     "\"Unregistered\" badge in its panel.\n\n"
+                                     "To register, your customer clicks the badge and sends you the Machine ID it shows. Type it "
+                                     "into the serial generator (Options > Serial generator) and send back the serial it makes.\n\n"
+                                     "The plugin's key is kept in protection.json in the project folder: back up the project "
+                                     "folder, and never share protection.json or the generator page.")
+                       .withButton ("Open serial generator")
+                       .withButton ("OK")
+                       .withAssociatedComponent (this);
+
+    juce::AlertWindow::showAsync (options, [safeThis = juce::Component::SafePointer<MainComponent> (this)] (int button)
+    {
+        if (safeThis != nullptr && button == 1)
+            safeThis->openSerialGenerator();
+    });
+}
+
+void MainComponent::openSerialGenerator()
+{
+    if (! project.isOpen())
+        return;
+
+    const auto folder = project.getFolder();
+    const auto protection = Protection::load (folder);
+
+    if (! protection.isOn())
+    {
+        showError ("Not protected", "Switch on Options > Protect with a serial number first.");
+        return;
+    }
+
+    // Written fresh each time (the plugin's name or company may have changed), into the
+    // project folder: never beside the exported plugin.
+    juce::File page;
+
+    if (const auto written = protection.writeGenerator (folder, project.getInfo().name, project.getInfo().vendor, page); written.failed())
+    {
+        showError ("Couldn't make the serial generator", written.getErrorMessage());
+        return;
+    }
+
+    if (! page.startAsProcess())
+        page.revealToUser();
+}
+
 void MainComponent::saveProjectAs()
 {
     if (! project.isOpen() || saveAsDialog != nullptr)
@@ -1234,9 +1317,27 @@ void MainComponent::saveProjectAs()
                 const auto saved = safeThis->project.saveAs (name);
 
                 if (saved.failed())
+                {
                     safeThis->showError ("Couldn't save a copy", saved.getErrorMessage());
+                }
                 else
+                {
+                    // The copy is a plugin of its own, with its own serial numbers: a new key,
+                    // and the old plugin's generator page doesn't come along.
+                    const auto folder = safeThis->project.getFolder();
+                    auto protection = Protection::load (folder);
+
+                    if (protection.hasKey())
+                    {
+                        protection.makeNewKey();
+                        protection.save (folder);
+                    }
+
+                    for (const auto& page : folder.findChildFiles (juce::File::findFiles, false, "* Serial Generator.html"))
+                        page.deleteFile();
+
                     safeThis->topBar.showNotice ("Saved as " + safeThis->project.getInfo().name);
+                }
             }
 
             // Let the modal machinery finish with the dialog before it goes.

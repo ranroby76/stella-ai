@@ -228,6 +228,10 @@ namespace stella::gui
         void mouseMove (int x, int y);   // no button down: programmed elements hear it
         void mouseExit();
 
+        /** A protected plugin, not registered yet: the "Unregistered" badge was clicked, so
+            the window should open the registration window (asked once per click). */
+        bool takeRegistrationRequest() noexcept    { const bool asked = registrationRequested; registrationRequested = false; return asked; }
+
     private:
         struct Image
         {
@@ -272,6 +276,10 @@ namespace stella::gui
         std::vector<float> scopeBuffer;
 
         void applyPreset (int index);
+
+        Image badge;                      // "Unregistered", bottom right, until registered (protected plugins)
+        bool registrationRequested = false;
+        bool badgeHit (int x, int y) const;
 
         int active = -1;
         int heldNote = -1, heldKeyboard = -1;   // the key the mouse holds down, and on which keyboard

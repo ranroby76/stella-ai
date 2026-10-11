@@ -69,6 +69,8 @@ juce_add_binary_data(StellaRuntimeData
         src/stella_gui.cpp
         src/stella_gui_win32.cpp
         src/stella_keys.h
+        src/stella_licence.h
+        src/serial_generator.html
         src/stb_image.h
         src/stella_element_api.h
         src/stella_element_host.h
@@ -99,6 +101,7 @@ target_sources(StellaAIStudio PRIVATE
     src/Settings.cpp
     src/Project.h
     src/Project.cpp
+    src/Protection.cpp
     src/AudioEngine.h
     src/AudioEngine.cpp
     src/TopBar.h

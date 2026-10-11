@@ -6,6 +6,10 @@
 #include "stella_gui.h"
 #include "stella_keys.h"
 
+#if STELLA_PROTECTED
+ #include "stella_licence.h"
+#endif
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -484,6 +488,26 @@ namespace stella::gui
         if (numCustomElements > 0)
             elements = std::make_unique<Elements> (*this);
        #endif
+
+       #if STELLA_PROTECTED
+        badge = decode (licence::badgePng, licence::badgePngSize);
+       #endif
+    }
+
+    bool Editor::badgeHit (int x, int y) const
+    {
+       #if STELLA_PROTECTED
+        if (badge.width > 0 && ! licence::isRegistered())
+        {
+            const auto bx = width - badge.width - 8, by = height - badge.height - 8;
+            return x >= bx && x < bx + badge.width && y >= by && y < by + badge.height;
+        }
+       #else
+        (void) x;
+        (void) y;
+       #endif
+
+        return false;
     }
 
     Editor::~Editor()
@@ -551,6 +575,13 @@ namespace stella::gui
 
     void Editor::mouseDown (int x, int y, bool fine, bool doubleClick)
     {
+        // The "Unregistered" badge: the window opens the registration window.
+        if (badgeHit (x, y))
+        {
+            registrationRequested = true;
+            return;
+        }
+
        #if STELLA_ELEMENTS
         // A programmed element's open popup takes the click; a click anywhere else closes it,
         // and goes no further.
@@ -1231,5 +1262,11 @@ namespace stella::gui
 
         // Programmed elements' popups lie over everything.
         drawPopups (pixels);
+
+       #if STELLA_PROTECTED
+        // Not registered yet: the badge, bottom right, over everything.
+        if (badge.width > 0 && ! licence::isRegistered())
+            blitPixels (pixels, badge.pixels.data(), width - badge.width - 8, height - badge.height - 8, badge.width, badge.height);
+       #endif
     }
 }

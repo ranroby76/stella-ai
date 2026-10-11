@@ -1,0 +1,238 @@
+<!-- C:\workspace\Stella AI Studio\src\serial_generator.html -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__PLUGIN_NAME__ – Serial Generator</title>
+<style>
+  :root {
+    --bg: #060a14; --card: #0b1120; --line: #1c2538; --text: #f3f6fb; --muted: #7d8aa5;
+    --accent: #1e8fff; --accent-dark: #1673d6; --field: #eaf0fb; --serial: #2dd4a8; --serial-bg: #08161a;
+    --serial-line: #134e4a; --bad: #f87171; --good: #34d399;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 "Segoe UI", system-ui, -apple-system, sans-serif; }
+  main { max-width: 780px; margin: 0 auto; padding: 28px 24px 40px; }
+  h1 { margin: 0; font-size: 28px; font-weight: 700; letter-spacing: -0.01em; }
+  .subtitle { margin: 4px 0 26px; color: var(--muted); }
+  hr { border: 0; border-top: 1px solid var(--line); margin: 0 0 24px; }
+  .product { display: flex; align-items: center; gap: 14px; margin-bottom: 26px; }
+  .tile { width: 48px; height: 48px; border-radius: 10px; background: #0f1a2e; border: 1px solid #1d3354; display: grid; place-items: center; }
+  .product h2 { margin: 0; font-size: 22px; font-weight: 700; }
+  .product .what { color: var(--muted); font-size: 14px; }
+  .tabs { display: inline-flex; gap: 4px; padding: 4px; border-radius: 12px; background: var(--card); border: 1px solid var(--line); margin-bottom: 26px; }
+  .tabs button { border: 0; border-radius: 9px; padding: 9px 16px; background: transparent; color: var(--text); font: inherit; font-weight: 600; cursor: pointer; }
+  .tabs button.on { background: var(--accent); color: #0a1220; }
+  label { display: flex; align-items: center; gap: 8px; color: #c9d3e6; margin: 0 0 10px; font-weight: 500; }
+  label .mark { color: var(--muted); font-weight: 700; }
+  input { width: 100%; padding: 16px; border-radius: 9px; border: 1px solid transparent; background: var(--field); color: #0a1220;
+          font: 17px/1.2 Consolas, "SF Mono", Menlo, monospace; outline: none; }
+  input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(30, 143, 255, 0.25); }
+  .go { width: 100%; margin: 24px 0 30px; padding: 16px; border: 0; border-radius: 9px; background: var(--accent); color: #0a1220;
+        font: inherit; font-size: 19px; font-weight: 600; cursor: pointer; }
+  .go:hover { background: #3a9dff; }
+  .go:active { background: var(--accent-dark); }
+  .result { display: flex; align-items: center; justify-content: space-between; min-height: 70px; padding: 0 22px; border-radius: 12px;
+            background: var(--serial-bg); border: 1px solid var(--serial-line); }
+  .serial { font: 36px/1 Consolas, "SF Mono", Menlo, monospace; letter-spacing: 0.04em; color: var(--serial); }
+  .serial.empty { color: #2a4a48; }
+  .copy { border: 0; background: transparent; color: #8aa0b8; cursor: pointer; padding: 6px; border-radius: 6px; }
+  .copy:hover { color: var(--text); background: #10242a; }
+  .verdict { min-height: 70px; display: flex; align-items: center; padding: 0 22px; border-radius: 12px; background: var(--card);
+             border: 1px solid var(--line); font-size: 18px; font-weight: 600; color: var(--muted); }
+  .verdict.good { color: var(--good); border-color: #14532d; background: #07160f; }
+  .verdict.bad { color: var(--bad); border-color: #5b1d1d; background: #170909; }
+  .hint { color: var(--bad); min-height: 20px; margin: 10px 0 0; font-size: 14px; }
+  .note { margin-top: 34px; color: var(--muted); font-size: 13px; }
+  .hidden { display: none; }
+  .space { height: 18px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Serial Generator</h1>
+  <div class="subtitle">Generate product serial numbers from Machine IDs</div>
+  <hr>
+
+  <div class="product">
+    <div class="tile">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#3a9dff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg>
+    </div>
+    <div>
+      <h2>__PLUGIN_NAME__</h2>
+      <div class="what">Serial Number Generator · __VENDOR__</div>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button id="tab-generate" class="on" type="button">Generate</button>
+    <button id="tab-verify" type="button">Verify</button>
+  </div>
+
+  <section id="generate">
+    <label for="id"><span class="mark">#</span> Machine ID</label>
+    <input id="id" inputmode="numeric" autocomplete="off" placeholder="e.g. 32435" autofocus>
+    <div class="hint" id="id-hint"></div>
+    <button class="go" id="make" type="button">Generate Serial</button>
+
+    <label><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#7d8aa5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="4.5"/><path d="m10.7 12.3 9.3-9.3M17 6l3 3M14 9l2 2"/></svg> Generated Serial</label>
+    <div class="result">
+      <span class="serial empty" id="serial">— — —</span>
+      <button class="copy" id="copy" type="button" title="Copy">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+      </button>
+    </div>
+  </section>
+
+  <section id="verify" class="hidden">
+    <label for="vid"><span class="mark">#</span> Machine ID</label>
+    <input id="vid" inputmode="numeric" autocomplete="off" placeholder="e.g. 32435">
+    <div class="space"></div>
+    <label for="vserial"><span class="mark">#</span> Serial</label>
+    <input id="vserial" inputmode="numeric" autocomplete="off" placeholder="nine digits">
+    <button class="go" id="check" type="button">Verify Serial</button>
+    <div class="verdict" id="verdict">Type a Machine ID and a serial, then Verify.</div>
+  </section>
+
+  <div class="note">Keep this page private: anyone who has it can make serial numbers for __PLUGIN_NAME__. It works offline.</div>
+</main>
+
+<script>
+"use strict";
+// The plugin's own key. A serial is HMAC-SHA256 (key, Machine ID as ASCII): the first 8
+// bytes as a big-endian number, mod 1,000,000,000, nine digits with leading zeros (as Fanan's
+// registration computes it inside the plugin).
+const KEY_HEX = "__KEY_HEX__";
+
+function hexBytes(hex) {
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < out.length; ++i) out[i] = parseInt(hex.substr(i * 2, 2), 16);
+  return out;
+}
+
+const K = new Uint32Array([
+  0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+  0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+  0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+  0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+  0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+  0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+  0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+  0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2]);
+
+function sha256(bytes) {
+  const bitLength = bytes.length * 8;
+  const total = ((bytes.length + 9 + 63) >> 6) << 6;
+  const data = new Uint8Array(total);
+  data.set(bytes);
+  data[bytes.length] = 0x80;
+  const view = new DataView(data.buffer);
+  view.setUint32(total - 8, Math.floor(bitLength / 0x100000000));
+  view.setUint32(total - 4, bitLength >>> 0);
+
+  const h = new Uint32Array([0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19]);
+  const w = new Uint32Array(64);
+  const rotr = (x, n) => (x >>> n) | (x << (32 - n));
+
+  for (let offset = 0; offset < total; offset += 64) {
+    for (let i = 0; i < 16; ++i) w[i] = view.getUint32(offset + i * 4);
+    for (let i = 16; i < 64; ++i) {
+      const s0 = rotr(w[i - 15], 7) ^ rotr(w[i - 15], 18) ^ (w[i - 15] >>> 3);
+      const s1 = rotr(w[i - 2], 17) ^ rotr(w[i - 2], 19) ^ (w[i - 2] >>> 10);
+      w[i] = (w[i - 16] + s0 + w[i - 7] + s1) >>> 0;
+    }
+    let [a, b, c, d, e, f, g, hh] = h;
+    for (let i = 0; i < 64; ++i) {
+      const t1 = (hh + (rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25)) + ((e & f) ^ (~e & g)) + K[i] + w[i]) >>> 0;
+      const t2 = ((rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22)) + ((a & b) ^ (a & c) ^ (b & c))) >>> 0;
+      hh = g; g = f; f = e; e = (d + t1) >>> 0; d = c; c = b; b = a; a = (t1 + t2) >>> 0;
+    }
+    h[0] += a; h[1] += b; h[2] += c; h[3] += d; h[4] += e; h[5] += f; h[6] += g; h[7] += hh;
+  }
+
+  const out = new Uint8Array(32);
+  const outView = new DataView(out.buffer);
+  for (let i = 0; i < 8; ++i) outView.setUint32(i * 4, h[i]);
+  return out;
+}
+
+function hmacSha256(key, message) {
+  let k = key.length > 64 ? sha256(key) : key;
+  const padded = new Uint8Array(64);
+  padded.set(k);
+  const inner = new Uint8Array(64 + message.length), outer = new Uint8Array(64 + 32);
+  for (let i = 0; i < 64; ++i) { inner[i] = padded[i] ^ 0x36; outer[i] = padded[i] ^ 0x5c; }
+  inner.set(message, 64);
+  outer.set(sha256(inner), 64);
+  return sha256(outer);
+}
+
+function serialFor(machineId) {
+  const mac = hmacSha256(hexBytes(KEY_HEX), new TextEncoder().encode(machineId));
+  let value = 0n;
+  for (let i = 0; i < 8; ++i) value = (value << 8n) | BigInt(mac[i]);
+  return (value % 1000000000n).toString().padStart(9, "0");
+}
+
+// The page.
+const $ = (id) => document.getElementById(id);
+
+function cleanId(text) {
+  const id = text.trim();
+  return /^[0-9]+$/.test(id) ? id : null;
+}
+
+function generate() {
+  const id = cleanId($("id").value);
+  $("id-hint").textContent = id === null && $("id").value.trim() !== "" ? "A Machine ID is digits only." : "";
+  const serial = $("serial");
+  if (id === null) { serial.textContent = "— — —"; serial.classList.add("empty"); return; }
+  serial.textContent = serialFor(id);
+  serial.classList.remove("empty");
+}
+
+function verify() {
+  const id = cleanId($("vid").value);
+  const typed = $("vserial").value.replace(/[\s-]/g, "");
+  const verdict = $("verdict");
+  verdict.className = "verdict";
+  if (id === null || !/^[0-9]+$/.test(typed)) { verdict.textContent = "Type a Machine ID and a serial, both digits only."; return; }
+  const good = typed === serialFor(id);
+  verdict.classList.add(good ? "good" : "bad");
+  verdict.textContent = good ? "Valid: this serial registers Machine ID " + id + "." : "Not valid for Machine ID " + id + ".";
+}
+
+function showTab(which) {
+  $("generate").classList.toggle("hidden", which !== "generate");
+  $("verify").classList.toggle("hidden", which !== "verify");
+  $("tab-generate").classList.toggle("on", which === "generate");
+  $("tab-verify").classList.toggle("on", which === "verify");
+}
+
+$("make").addEventListener("click", generate);
+$("id").addEventListener("keydown", (e) => { if (e.key === "Enter") generate(); });
+$("check").addEventListener("click", verify);
+$("vserial").addEventListener("keydown", (e) => { if (e.key === "Enter") verify(); });
+$("tab-generate").addEventListener("click", () => showTab("generate"));
+$("tab-verify").addEventListener("click", () => showTab("verify"));
+$("copy").addEventListener("click", () => {
+  const text = $("serial").textContent;
+  if (!/^[0-9]{9}$/.test(text)) return;
+  const done = () => { $("copy").title = "Copied"; setTimeout(() => ($("copy").title = "Copy"), 1500); };
+  if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(done, () => fallbackCopy(text, done));
+  else fallbackCopy(text, done);
+});
+
+function fallbackCopy(text, done) {
+  const box = document.createElement("textarea");
+  box.value = text;
+  document.body.appendChild(box);
+  box.select();
+  document.execCommand("copy");
+  box.remove();
+  done();
+}
+</script>
+</body>
+</html>

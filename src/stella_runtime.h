@@ -12,6 +12,10 @@
 
 #include "stella_api.h"
 
+#if STELLA_PROTECTED
+ #include "stella_licence.h"
+#endif
+
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -152,6 +156,10 @@ namespace stella
         std::string description, error;
         double sampleRate = 48000.0;
         float pitchBend = 0.0f, modWheel = 0.0f;
+
+       #if STELLA_PROTECTED
+        licence::DemoGate demoGate;   // until the plugin is registered
+       #endif
         int numDisplays = 0;
         bool built = false, prepared = false;
     };

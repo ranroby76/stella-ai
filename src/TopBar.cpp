@@ -18,6 +18,8 @@ namespace
         saveId = 7,
         saveAsId = 8,
         finishSoundId = 9,
+        protectId = 10,
+        generatorId = 11,
         recentBaseId = 100
     };
 
@@ -304,6 +306,11 @@ void TopBar::showOptionsMenu()
     menu.addItem (revealId, "Show project folder", hasProject);
     menu.addItem (closeId, "Close project", hasProject);
     menu.addSeparator();
+
+    const bool isProtected = hasProject && isProtectionOn != nullptr && isProtectionOn();
+    menu.addItem (protectId, "Protect with a serial number", hasProject, isProtected);
+    menu.addItem (generatorId, juce::String::fromUTF8 ("Serial generator\xe2\x80\xa6"), isProtected);
+    menu.addSeparator();
     menu.addItem (finishSoundId, "Sound when Stella AI finishes", true, isFinishSoundOn != nullptr && isFinishSoundOn());
 
     optionsMenu.setOpen (true);
@@ -330,6 +337,10 @@ void TopBar::showOptionsMenu()
                                 safeThis->onCloseProject();
                             else if (result == finishSoundId && safeThis->onToggleFinishSound != nullptr)
                                 safeThis->onToggleFinishSound();
+                            else if (result == protectId && safeThis->onToggleProtection != nullptr)
+                                safeThis->onToggleProtection();
+                            else if (result == generatorId && safeThis->onSerialGenerator != nullptr)
+                                safeThis->onSerialGenerator();
                             else if (result >= recentBaseId && result - recentBaseId < recent.size() && safeThis->onOpenRecent != nullptr)
                                 safeThis->onOpenRecent (juce::File (recent[result - recentBaseId]));
                         });

@@ -248,6 +248,10 @@ namespace stella
         if (built || ! nodes.empty())
             return fail ("The plugin was built twice.");
 
+       #if STELLA_PROTECTED
+        licence::check();   // the licence is read once, here, not on the audio thread
+       #endif
+
         for (int i = 0; i < numGraphModules; ++i)
         {
             const auto* type = findType (graphModules[i].type);
@@ -584,6 +588,11 @@ namespace stella
             for (int i = 0; i < frames; ++i)
                 out[i] = out[i] == out[i] ? clamp (out[i], -4.0f, 4.0f) : 0.0f;
         }
+
+       #if STELLA_PROTECTED
+        // Not registered yet: the demo's silences.
+        demoGate.process (outputBuffers[0].data(), outputBuffers[1].data(), frames, sampleRate);
+       #endif
 
         // What the studio watches: levels for meters, copies for scopes, module displays.
         const auto numTaps = shared.numTaps < (std::uint32_t) maxTaps ? shared.numTaps : (std::uint32_t) maxTaps;
