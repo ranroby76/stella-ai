@@ -9,6 +9,7 @@ namespace
     const juce::Identifier recentKey         { "recentProjects" };
     const juce::Identifier windowKey         { "window" };
     const juce::Identifier finishSoundKey    { "finishSound" };
+    const juce::Identifier stepCostsKey      { "stepCosts" };
 }
 
 //==============================================================================
@@ -101,6 +102,46 @@ void Settings::setFinishSound (bool shouldPlay)
 {
     if (auto* object = data.getDynamicObject())
         object->setProperty (finishSoundKey, shouldPlay);
+
+    save();
+}
+
+//==============================================================================
+double Settings::getStepCost (const juce::String& size) const
+{
+    const auto record = data.getProperty (stepCostsKey, {}).getProperty (juce::Identifier (size), {});
+
+    if ((int) record.getProperty ("count", 0) < stepCostMinimum)
+        return 0.0;
+
+    return juce::jmax (0.0, (double) record.getProperty ("average", 0.0));
+}
+
+void Settings::addStepCost (const juce::String& size, int credits)
+{
+    auto* object = data.getDynamicObject();
+
+    if (object == nullptr || size.isEmpty() || credits <= 0)
+        return;
+
+    auto costs = data.getProperty (stepCostsKey, {});
+
+    if (! costs.isObject())
+    {
+        costs = juce::var (new juce::DynamicObject());
+        object->setProperty (stepCostsKey, costs);
+    }
+
+    // A running average over about the last steps of this size, so it follows the prices.
+    const auto record = costs.getProperty (juce::Identifier (size), {});
+    const auto count = (int) record.getProperty ("count", 0) + 1;
+    auto average = (double) record.getProperty ("average", 0.0);
+    average += ((double) credits - average) / (double) juce::jmin (count, stepCostWindow);
+
+    auto* updated = new juce::DynamicObject();
+    updated->setProperty ("count", count);
+    updated->setProperty ("average", average);
+    costs.getDynamicObject()->setProperty (juce::Identifier (size), juce::var (updated));
 
     save();
 }

@@ -91,6 +91,7 @@ void StellaAi::clear()
     entries.clear();
     messages.clear();
     clearPlan();
+    later.clear();
     notify();
 }
 
@@ -107,9 +108,12 @@ void StellaAi::stop()
 void StellaAi::finish()
 {
     // The last step finished and Stella AI answered: the plan is done.
-    if (! planSteps.isEmpty() && ! planDone && lastStop == "done" && planCurrent >= planSteps.size())
+    if (! steps.empty() && planApproved && ! planDone && (planFinishing || (lastStop == "done" && planCurrent >= (int) steps.size())))
     {
         planDone = true;
+        planFinishing = false;
+        planCurrent = (int) steps.size();
+        recordFinishedSteps();
         showPlan();
     }
 
@@ -258,6 +262,46 @@ void StellaAi::send (const juce::String& text, const juce::Array<juce::File>& fi
     if (! problems.isEmpty())
         addEntry (Entry::Kind::notice, "Not attached: " + problems.joinIntoString (", ") + ".");
 
+    if (! canReachServer())
+        return;
+
+    currentRequest = shownText.trim().isNotEmpty() ? shownText.trim() : request;
+
+    if (planDone || planCancelled)
+        clearPlan();   // a finished plan isn't told again; an unfinished one is, so "continue" carries on
+
+    auto startMode = juce::String ("chat");
+
+    if (proposalPending)
+    {
+        // About the plan on show: "yes, go ahead" starts it, anything else changes it (or
+        // is answered while it waits). Its own mode knows it best.
+        userSpokeSinceProposal = true;
+        startMode = planMode;
+    }
+    else if (planApproved && ! planDone && planCurrent > 0)
+    {
+        // Typing on after a step ran over its estimate means going on with it.
+        overrunPaused = false;
+        auto& step = steps[(size_t) planCurrent - 1];
+
+        if (step.used >= step.allowance)
+            step.allowance = step.used + juce::roundToInt (step.high * overrunFactor);
+    }
+
+    if (blocks.isEmpty())
+    {
+        beginTurn (makeMessage ("user", request), currentRequest, startMode);
+    }
+    else
+    {
+        blocks.add (blockOf ({ { "type", "text" }, { "text", request } }));
+        beginTurn (makeMessage ("user", blocks), currentRequest, startMode);
+    }
+}
+
+bool StellaAi::canReachServer()
+{
     // Nothing is sent (or charged) unless the server can take it.
     if (! server.isReady())
     {
@@ -266,41 +310,33 @@ void StellaAi::send (const juce::String& text, const juce::Array<juce::File>& fi
                                            : "Not sent: Fanan's server can't be reached right now. Please try again in a moment.");
         server.checkNow();
         notify();
-        return;
+        return false;
     }
 
     if (server.getCredits() == 0)
     {
         addEntry (Entry::Kind::notice, "Not sent: you're out of Stella AI credits. Use Buy credits to get more, then send again.");
         notify();
-        return;
+        return false;
     }
 
-    currentRequest = shownText.trim().isNotEmpty() ? shownText.trim() : request;
+    return true;
+}
 
-    if (planDone)
-        clearPlan();   // a finished plan isn't told again; an unfinished one is, so "continue" carries on
-
+void StellaAi::beginTurn (const juce::var& message, const juce::String& shown, const juce::String& startMode)
+{
     if (onTurnStarted != nullptr)
-        onTurnStarted (currentRequest);
+        onTurnStarted (shown);
 
     trimHistory();
     turnStart = messages.size();
+    messages.add (message);
 
-    if (blocks.isEmpty())
-    {
-        messages.add (makeMessage ("user", request));
-    }
-    else
-    {
-        blocks.add (blockOf ({ { "type", "text" }, { "text", request } }));
-        messages.add (makeMessage ("user", blocks));
-    }
-
-    mode = "chat";
+    mode = startMode;
     lastStop.clear();
     roundsLeft = maxRounds;
     stopRequested = false;
+    turnCredits = 0;
     busy = true;
 
     notify();
@@ -342,6 +378,8 @@ void StellaAi::onAnswer (const juce::Result& result, const juce::var& answer)
     const auto reply = answer.getProperty ("reply", {}).toString().trim();
     const auto stopReason = answer.getProperty ("stop", {}).toString();
     lastStop = stopReason;
+    answerUsed = juce::jmax (0, (int) answer.getProperty ("used", 0));
+    proposedThisAnswer = false;
 
     messages.add (makeMessage ("assistant", content.isArray() && content.getArray()->size() > 0 ? content
                                                                                                 : juce::var (reply.isNotEmpty() ? reply : juce::String ("(no reply)"))));
@@ -364,6 +402,8 @@ void StellaAi::onAnswer (const juce::Result& result, const juce::var& answer)
         return;
     }
 
+    chargeAnswer();
+
     if (stopReason == "cut")
         addEntry (Entry::Kind::notice, "That answer was too long and got cut off. Ask for less at once, or say \"continue\".");
     else if (stopReason == "refused")
@@ -379,28 +419,7 @@ void StellaAi::runNextTool()
 {
     if (pendingCalls.isEmpty())
     {
-        // Every call answered: the results go back as the next turn.
-        messages.add (makeMessage ("user", toolResults));
-        toolResults.clear();
-
-        if (stopRequested)
-        {
-            messages.add (makeMessage ("assistant", juce::var ("(The user stopped me here.)")));
-            addEntry (Entry::Kind::notice, "Stopped.");
-            finish();
-            return;
-        }
-
-        if (--roundsLeft <= 0)
-        {
-            messages.add (makeMessage ("assistant", juce::var ("(I paused here after many steps.)")));
-            addEntry (Entry::Kind::notice, "Stella AI paused after many steps. Say \"continue\" to carry on.");
-            finish();
-            return;
-        }
-
-        notify();
-        sendRound();
+        answerDone();
         return;
     }
 
@@ -409,9 +428,9 @@ void StellaAi::runNextTool()
     const auto id = call.getProperty ("id", {}).toString();
     const auto input = call.getProperty ("input", {});
 
-    if (name == "plan")
+    if (name == "propose_plan" || name == "plan")
     {
-        const auto result = runPlan (input);
+        const auto result = name == "plan" ? runPlan (input) : proposePlan (input);
         toolResults.add (makeToolResult (id, result, result.startsWith ("Not ")));
         notify();
         runNextTool();
@@ -422,8 +441,23 @@ void StellaAi::runNextTool()
     {
         // From here on, this request goes to the builder.
         mode = "build";
-        addEntry (Entry::Kind::activity, juce::String::fromUTF8 ("Starting to build\xe2\x80\xa6"));
-        toolResults.add (makeToolResult (id, "The builder has taken over. Go ahead: look at the project, write the modules, wire them and build.", false));
+        addEntry (Entry::Kind::activity, juce::String::fromUTF8 ("Handing over to the builder\xe2\x80\xa6"));
+        toolResults.add (makeToolResult (id, "The builder has taken over. Look at the project as you need, then size the request with "
+                                             "propose_plan: nothing changes before the user approves it.", false));
+        runNextTool();
+        return;
+    }
+
+    // Nothing in the plugin changes without a plan the user approved.
+    static const juce::StringArray changeTools { "set_layout", "edit_layout", "save_preset", "write_file", "delete_file", "set_graph", "build" };
+
+    if (changeTools.contains (name) && ! (planApproved && ! planDone))
+    {
+        toolResults.add (makeToolResult (id, proposalPending
+                                                 ? "Not done: the plan is waiting for the user's approval. Nothing changes until they start it."
+                                                 : "Not done: nothing in the plugin changes before the user approves a plan. Size this request "
+                                                   "with propose_plan first (read_project and read_file are fine before it).",
+                                         true));
         runNextTool();
         return;
     }
@@ -462,74 +496,453 @@ void StellaAi::runNextTool()
     });
 }
 
+void StellaAi::answerDone()
+{
+    // Every call answered: the results go back as the next turn.
+    messages.add (makeMessage ("user", toolResults));
+    toolResults.clear();
+    chargeAnswer();
+
+    // The plan is on show: the user starts it, changes it or cancels it.
+    if (proposedThisAnswer)
+    {
+        messages.add (makeMessage ("assistant", juce::var ("(I've shown the user my plan and its price, and I'm waiting for them "
+                                                           "to start it, change it or cancel it.)")));
+        finish();
+        return;
+    }
+
+    if (stopRequested)
+    {
+        messages.add (makeMessage ("assistant", juce::var ("(The user stopped me here.)")));
+        addEntry (Entry::Kind::notice, "Stopped.");
+        finish();
+        return;
+    }
+
+    // A step well over its estimate pauses: the user decides whether it goes on.
+    if (planApproved && ! planDone && ! planFinishing && planCurrent > 0)
+    {
+        const auto& step = steps[(size_t) planCurrent - 1];
+
+        if (step.used > step.allowance)
+        {
+            overrunPaused = true;
+            messages.add (makeMessage ("assistant", juce::var ("(I paused: this step is taking longer than planned, and the user decides "
+                                                               "whether I go on.)")));
+            addEntry (Entry::Kind::notice, "Step " + juce::String (planCurrent) + " is taking longer than planned: " + juce::String (step.used)
+                                               + " credits so far (estimated " + juce::String (step.low) + juce::String::fromUTF8 ("\xe2\x80\x93")
+                                               + juce::String (step.high) + "). Go on, or pause it below.");
+            finish();
+            return;
+        }
+    }
+
+    if (--roundsLeft <= 0)
+    {
+        messages.add (makeMessage ("assistant", juce::var ("(I paused here after many steps.)")));
+        addEntry (Entry::Kind::notice, "Stella AI paused after many steps. Say \"continue\" to carry on.");
+        finish();
+        return;
+    }
+
+    notify();
+    sendRound();
+}
+
 //==============================================================================
+StellaAi::Waiting StellaAi::getWaiting() const noexcept
+{
+    if (busy)
+        return Waiting::nothing;
+
+    if (proposalPending)
+        return Waiting::approval;
+
+    if (overrunPaused && planApproved && ! planDone && planCurrent > 0)
+        return Waiting::overrun;
+
+    return Waiting::nothing;
+}
+
+juce::String StellaAi::getWaitingText() const
+{
+    const auto dash = juce::String::fromUTF8 ("\xe2\x80\x93");
+    const auto dot = juce::String::fromUTF8 (" \xc2\xb7 ");
+
+    switch (getWaiting())
+    {
+        case Waiting::approval:
+        {
+            const auto credits = server.getCredits();
+            return juce::String ((int) steps.size()) + ((int) steps.size() == 1 ? " step" : " steps") + (later.empty() ? juce::String() : juce::String (" (phase 1)"))
+                 + dot + "about " + juce::String (planLow()) + dash + juce::String (planHigh()) + " credits"
+                 + (credits >= 0 ? dot + "you have " + juce::String (credits) : juce::String());
+        }
+
+        case Waiting::overrun:
+        {
+            const auto& step = steps[(size_t) planCurrent - 1];
+            return "Step " + juce::String (planCurrent) + ": " + juce::String (step.used) + " credits so far, estimated "
+                 + juce::String (step.low) + dash + juce::String (step.high);
+        }
+
+        case Waiting::nothing:
+        default:
+            return {};
+    }
+}
+
+bool StellaAi::isWaitingWarning() const
+{
+    const auto credits = server.getCredits();
+    return getWaiting() == Waiting::approval && credits >= 0 && credits < planHigh();
+}
+
+void StellaAi::approvePlan()
+{
+    if (busy || ! proposalPending || ! canReachServer())
+        return;
+
+    proposalPending = false;
+    planApproved = true;
+    planCurrent = 0;
+    showPlan();
+
+    currentRequest = planRequest;
+    addEntry (Entry::Kind::user, "Start the plan.");
+    beginTurn (makeMessage ("user", "I approve the plan: start it now. Do the steps one at a time, calling plan with current as each one "
+                                    "starts and done: true after the last."),
+               planRequest, planMode);
+}
+
+void StellaAi::cancelPlan()
+{
+    if (busy || ! proposalPending)
+        return;
+
+    proposalPending = false;
+    planApproved = false;
+    planCancelled = true;
+    later.clear();
+    showPlan();
+
+    messages.add (makeMessage ("user", "(I cancelled the plan you proposed: don't build it.)"));
+    messages.add (makeMessage ("assistant", juce::var ("(Cancelled: nothing was built.)")));
+    notify();
+}
+
+void StellaAi::continueStep()
+{
+    if (busy || getWaiting() != Waiting::overrun || ! canReachServer())
+        return;
+
+    overrunPaused = false;
+    auto& step = steps[(size_t) planCurrent - 1];
+    step.allowance = step.used + juce::roundToInt (step.high * overrunFactor);
+
+    currentRequest = planRequest;
+    addEntry (Entry::Kind::user, "Go on.");
+    beginTurn (makeMessage ("user", "Go on with this step."), planRequest, planMode);
+}
+
+void StellaAi::pausePlan()
+{
+    if (busy || getWaiting() != Waiting::overrun)
+        return;
+
+    overrunPaused = false;
+    addEntry (Entry::Kind::activity, "Paused at step " + juce::String (planCurrent) + ". Say \"continue\" when you want to go on.");
+    notify();
+}
+
+//==============================================================================
+juce::String StellaAi::proposePlan (const juce::var& input)
+{
+    auto sizeOf = [] (const juce::var& value)
+    {
+        const auto size = value.toString().trim().toLowerCase();
+        return size == "small" || size == "large" ? size : juce::String ("medium");
+    };
+
+    auto text = [] (const juce::var& value, int length)
+    {
+        return value.toString().replaceCharacters ("\r\n", "  ").trim().substring (0, length);
+    };
+
+    std::vector<Step> newSteps;
+
+    if (const auto* list = input.getProperty ("steps", {}).getArray())
+    {
+        for (const auto& item : *list)
+        {
+            Step step;
+
+            if (item.isObject())
+            {
+                step.title = text (item.getProperty ("title", {}), 80);
+                step.builds = text (item.getProperty ("builds", {}), 200);
+                step.size = sizeOf (item.getProperty ("size", {}));
+            }
+            else
+            {
+                step.title = text (item, 80);
+                step.size = "medium";
+            }
+
+            if (step.title.isNotEmpty())
+                newSteps.push_back (step);
+        }
+    }
+
+    if (newSteps.empty())
+        return "Not done: the plan has no steps. Give its steps, each with title, builds and size.";
+
+    if ((int) newSteps.size() > maxPlanSteps)
+        return "Not done: at most " + juce::String (maxPlanSteps) + " steps in one plan. Make this plan the first phase and put the rest in "
+               "later, as phases with their number of steps.";
+
+    std::vector<Phase> newLater;
+
+    if (const auto* list = input.getProperty ("later", {}).getArray())
+    {
+        for (const auto& item : *list)
+        {
+            Phase phase;
+            phase.title = text (item.getProperty ("title", {}), 80);
+            phase.builds = text (item.getProperty ("builds", {}), 200);
+            phase.size = sizeOf (item.getProperty ("size", {}));
+            phase.steps = juce::jlimit (1, maxPlanSteps, (int) item.getProperty ("steps", 4));
+
+            if (phase.title.isNotEmpty())
+                newLater.push_back (phase);
+        }
+    }
+
+    if ((int) newLater.size() > maxLaterPhases)
+        return "Not done: at most " + juce::String (maxLaterPhases) + " later phases. Make each phase bigger (up to 12 steps).";
+
+    // Priced from what steps of each size really cost so far.
+    for (auto& step : newSteps)
+    {
+        estimate (step.size, step.low, step.high);
+        step.allowance = juce::roundToInt (step.high * overrunFactor);
+    }
+
+    for (auto& phase : newLater)
+    {
+        estimate (phase.size, phase.low, phase.high);
+        phase.low *= phase.steps;
+        phase.high *= phase.steps;
+    }
+
+    steps = std::move (newSteps);
+    later = std::move (newLater);
+    summary = text (input.getProperty ("summary", {}), 400);
+    planMode = mode;
+    planRequest = currentRequest;
+    planCurrent = 0;
+    planDone = planCancelled = planFinishing = false;
+    proposalPending = true;
+    planApproved = false;
+    proposedThisAnswer = true;
+    userSpokeSinceProposal = false;
+    overrunPaused = false;
+
+    entries.push_back ({ Entry::Kind::plan, {} });
+    planEntry = entries.size() - 1;
+    showPlan();
+
+    return "The user sees your plan and its price. Stop here and write nothing more: they start it, change it or cancel it.";
+}
+
 juce::String StellaAi::runPlan (const juce::var& input)
 {
-    // New steps: a new plan, with its own checklist in the conversation.
-    if (const auto* list = input.getProperty ("steps", {}).getArray(); list != nullptr && ! list->isEmpty())
+    if (steps.empty() || planCancelled)
+        return "Not done: there's no plan. Propose one with propose_plan.";
+
+    if (proposalPending)
     {
-        juce::StringArray steps;
-
-        for (const auto& step : *list)
-            if (const auto text = step.toString().replaceCharacters ("\r\n", "  ").trim(); text.isNotEmpty())
-                steps.add (text.substring (0, 80));
-
-        if (steps.isEmpty())
-            return "Not done: the steps were empty.";
-
-        if (steps.size() > maxPlanSteps)
-            return "Not done: at most " + juce::String (maxPlanSteps) + " steps. Group small things into one step.";
-
-        planSteps = steps;
-        planCurrent = 0;
-        planDone = false;
-        planRequest = currentRequest;
-        entries.push_back ({ Entry::Kind::plan, {} });
-        planEntry = entries.size() - 1;
+        // The user answered the plan in words ("yes, go ahead"): starting it is the approval.
+        if ((int) input.getProperty ("current", 0) >= 1 && userSpokeSinceProposal && ! proposedThisAnswer)
+        {
+            proposalPending = false;
+            planApproved = true;
+            planCurrent = 0;
+        }
+        else
+        {
+            return "Not done: the plan is waiting for the user's approval. Stop here: they start it, change it or cancel it.";
+        }
     }
-    else if (planSteps.isEmpty())
-    {
-        return "Not done: there's no plan yet. Give its steps first.";
-    }
+
+    if (! planApproved || planDone)
+        return "Not done: there's no approved plan under way. Propose one with propose_plan.";
+
+    const auto numSteps = (int) steps.size();
 
     if (input.hasProperty ("current"))
     {
-        const auto current = juce::jlimit (0, planSteps.size(), (int) input.getProperty ("current", 0));
+        const auto current = juce::jlimit (0, numSteps, (int) input.getProperty ("current", 0));
 
         if (current != planCurrent && current > 0)
-            addEntry (Entry::Kind::activity, "Step " + juce::String (current) + " of " + juce::String (planSteps.size()) + ": " + planSteps[current - 1]);
+            addEntry (Entry::Kind::activity, "Step " + juce::String (current) + " of " + juce::String (numSteps) + ": " + steps[(size_t) current - 1].title);
 
-        planCurrent = current;
+        if (current > 0)
+            planCurrent = current;
     }
 
     if ((bool) input.getProperty ("done", false))
-    {
-        planDone = true;
-        planCurrent = planSteps.size();
-    }
+        planFinishing = true;   // done when the request finishes, with every credit it cost counted
 
     showPlan();
 
-    if (planDone)
-        return "Plan done: all " + juce::String (planSteps.size()) + " steps.";
+    if (planFinishing)
+        return "Plan done: all " + juce::String (numSteps) + " steps.";
 
-    return "The user sees the plan" + (planCurrent > 0 ? ", now at step " + juce::String (planCurrent) + " of " + juce::String (planSteps.size())
-                                                        : juce::String (" (" + juce::String (planSteps.size()) + " steps)"))
+    return "The user sees the plan" + (planCurrent > 0 ? ", now at step " + juce::String (planCurrent) + " of " + juce::String (numSteps)
+                                                        : juce::String (" (" + juce::String (numSteps) + " steps)"))
          + ". Do the steps one at a time, calling plan with current as each starts and done: true after the last.";
+}
+
+void StellaAi::chargeAnswer()
+{
+    const auto used = answerUsed;
+    answerUsed = 0;
+    turnCredits += used;
+
+    if (planApproved && ! planDone && ! steps.empty())
+    {
+        if (planCurrent == 0)
+            planCurrent = 1;   // working without saying so: it's the first step
+
+        steps[(size_t) planCurrent - 1].used += used;
+    }
+
+    if (proposedThisAnswer)
+        sizingCredits = turnCredits;   // reading the project and sizing it, before the plan showed
+
+    if (planFinishing)
+        planCurrent = (int) steps.size();   // done once the answer closing the request is counted too (finish)
+
+    recordFinishedSteps();
+    showPlan();
+}
+
+void StellaAi::recordFinishedSteps()
+{
+    // Finished steps teach the estimates what steps of their size really cost.
+    for (size_t i = 0; i < steps.size(); ++i)
+    {
+        auto& step = steps[i];
+        const bool finished = planDone || (int) i + 1 < planCurrent;
+
+        if (finished && ! step.recorded && step.used > 0)
+        {
+            step.recorded = true;
+
+            if (onStepCost != nullptr)
+                onStepCost (step.size, step.used);
+        }
+    }
+}
+
+void StellaAi::estimate (const juce::String& size, int& low, int& high) const
+{
+    // A first guess per size until real steps have been measured (credits per step of the
+    // builder: one round of thinking and writing a file is about 8, a full module with a fix
+    // about 18, a big part with helpers and fixes about 35).
+    const double guess = size == "small" ? 8.0 : size == "large" ? 35.0 : 18.0;
+    const auto measured = averageStepCost != nullptr ? averageStepCost (size) : 0.0;
+    const auto average = measured > 0.0 ? measured : guess;
+
+    low = juce::jmax (1, juce::roundToInt (average * estimateLow));
+    high = juce::jmax (low + 1, juce::roundToInt (average * estimateHigh));
+}
+
+int StellaAi::planLow() const    { int total = 0; for (const auto& s : steps) total += s.low;  return total; }
+int StellaAi::planHigh() const   { int total = 0; for (const auto& s : steps) total += s.high; return total; }
+int StellaAi::laterLow() const   { int total = 0; for (const auto& p : later) total += p.low;  return total; }
+int StellaAi::laterHigh() const  { int total = 0; for (const auto& p : later) total += p.high; return total; }
+int StellaAi::planUsed() const   { int total = 0; for (const auto& s : steps) total += s.used; return total; }
+
+juce::String StellaAi::jobSize() const
+{
+    const auto high = planHigh() + laterHigh();
+    return high <= 30 ? "Small" : high <= 100 ? "Medium" : high <= 300 ? "Large" : "Huge";
 }
 
 juce::String StellaAi::planText() const
 {
-    juce::StringArray lines;
-    lines.add (juce::String (planSteps.size()) + (planSteps.size() == 1 ? " step" : " steps") + (planDone ? juce::String (", all done") : juce::String()));
+    // One line each; the first character tells the panel how to show it: "#" the title,
+    // "~" what it builds, a mark for each step, "+" a later phase, "=" a note, "!" a warning.
+    const auto dash = juce::String::fromUTF8 ("\xe2\x80\x93");
+    const auto dot = juce::String::fromUTF8 (" \xc2\xb7 ");
+    const auto range = [&dash] (int low, int high) { return juce::String (low) + dash + juce::String (high); };
+    const auto numSteps = (int) steps.size();
+    const auto stepWord = juce::String (numSteps == 1 ? " step" : " steps");
 
-    for (int i = 0; i < planSteps.size(); ++i)
+    juce::StringArray lines;
+
+    if (planCancelled)
+        lines.add ("# Plan cancelled" + dot + "nothing was built");
+    else if (planDone)
+        lines.add ("# Plan done" + dot + juce::String (numSteps) + stepWord + dot + juce::String (planUsed()) + " credits (estimated "
+                   + range (planLow(), planHigh()) + ")");
+    else if (planApproved && planCurrent > 0)
+        lines.add ("# Plan" + dot + "step " + juce::String (planCurrent) + " of " + juce::String (numSteps) + dot + juce::String (planUsed())
+                   + " credits so far (estimated " + range (planLow(), planHigh()) + ")");
+    else if (planApproved)
+        lines.add ("# Plan" + dot + "starting" + dot + "estimated " + range (planLow(), planHigh()) + " credits");
+    else
+        lines.add ("# Plan" + dot + jobSize() + " job" + (later.empty() ? juce::String() : dot + "phase 1 of " + juce::String ((int) later.size() + 1)));
+
+    if (summary.isNotEmpty())
+        lines.add ("~ " + summary);
+
+    for (int i = 0; i < numSteps; ++i)
     {
+        const auto& step = steps[(size_t) i];
         const auto number = i + 1;
-        const auto mark = planDone || number < planCurrent ? juce::String::fromUTF8 ("\xe2\x9c\x93 ")    // ✓
-                        : number == planCurrent           ? juce::String::fromUTF8 ("\xe2\x96\xb8 ")    // ▸
-                                                          : juce::String::fromUTF8 ("\xe2\x97\x8b ");   // ○
-        lines.add (mark + planSteps[i]);
+        const bool done = planDone || (planApproved && number < planCurrent);
+        const bool now = ! done && planApproved && number == planCurrent;
+
+        const auto mark = done ? juce::String::fromUTF8 ("\xe2\x9c\x93 ")   // ✓
+                        : now  ? juce::String::fromUTF8 ("\xe2\x96\xb8 ")   // ▸
+                               : juce::String::fromUTF8 ("\xe2\x97\x8b ");  // ○
+
+        const auto cost = done ? juce::String (step.used) + " credits"
+                        : now  ? juce::String (step.used) + " so far (" + range (step.low, step.high) + ")"
+                               : range (step.low, step.high) + " credits";
+
+        lines.add (mark + juce::String (number) + ". " + step.title
+                   + (step.builds.isNotEmpty() ? juce::String::fromUTF8 (" \xe2\x80\x94 ") + step.builds : juce::String())
+                   + dot + cost);
+    }
+
+    const auto later0 = later.empty() ? nullptr : &later.front();
+
+    if (proposalPending)
+    {
+        lines.add ("= This plan: about " + range (planLow(), planHigh()) + " credits");
+
+        for (const auto& phase : later)
+            lines.add ("+ Later: " + phase.title + (phase.builds.isNotEmpty() ? juce::String::fromUTF8 (" \xe2\x80\x94 ") + phase.builds : juce::String())
+                       + dot + juce::String (phase.steps) + (phase.steps == 1 ? " step" : " steps") + dot + range (phase.low, phase.high) + " credits");
+
+        if (! later.empty())
+            lines.add ("= The whole job, all phases: about " + range (planLow() + laterLow(), planHigh() + laterHigh()) + " credits");
+
+        const auto credits = server.getCredits();
+        lines.add ("= Planning it used " + juce::String (sizingCredits) + (sizingCredits == 1 ? " credit" : " credits")
+                   + (credits >= 0 ? dot + "you have " + juce::String (credits) : juce::String()));
+
+        if (credits >= 0 && credits < planHigh())
+            lines.add ("! That may not be enough for all of this plan: buy credits first, or it may stop partway (it carries on after).");
+    }
+    else if (planDone && later0 != nullptr)
+    {
+        lines.add ("= Next: " + later0->title + dot + "say \"next phase\" to plan it");
     }
 
     return lines.joinIntoString ("\n");
@@ -540,33 +953,59 @@ juce::String StellaAi::modeContext() const
     // A conversation can design the panel but can't write code: a GUI element the toolbox
     // lacks (a drop-down list, say) is the builder's to program, never a toolbox stand-in.
     if (mode == "build")
-        return "\nYou're the builder. A drop-down list (droplist, combo box) is the toolbox's \"dropdown\". When the request "
-               "needs a GUI element the toolbox doesn't have and the project hasn't programmed (a menu, tabs, a step sequencer, "
-               "a rotary switch...), program it in elements/<Name>.cpp, build, then put it on the panel. Never make do with a "
-               "selector or another toolbox type instead, and never tell the user it can't be done.\n";
+        return "\nYou're the builder. Size every request with propose_plan before changing anything. A drop-down list (droplist, "
+               "combo box) is the toolbox's \"dropdown\". When the request needs a GUI element the toolbox doesn't have and the "
+               "project hasn't programmed (a menu, tabs, a step sequencer, a rotary switch...), program it in elements/<Name>.cpp, "
+               "build, then put it on the panel. Never make do with a selector or another toolbox type instead, and never tell the "
+               "user it can't be done.\n";
 
-    return "\nYou're in a conversation: you can't write code or build. Design the panel with toolbox types (a drop-down list, "
-           "droplist or combo box is the toolbox's \"dropdown\") and the programmed elements listed above. When the request "
-           "needs a GUI element the toolbox doesn't have and the project hasn't programmed (a menu, tabs, a step sequencer, a "
-           "rotary switch...), call start_building straight away, saying which element: the builder programs it, builds it "
-           "and puts it on the panel. Never make do with a selector or another toolbox type instead, and never tell the user "
-           "it can't be done.\n";
+    return "\nYou're in a conversation: you can't write code or build. When the request needs code (a new sound, a change to one, "
+           "a GUI element the toolbox doesn't have and the project hasn't programmed: a menu, tabs, a step sequencer, a rotary "
+           "switch...), call start_building straight away: the builder sizes it, programs it and puts it on the panel. A change "
+           "only to the panel (toolbox types, a drop-down list being the toolbox's \"dropdown\", and the programmed elements listed "
+           "above) or to presets: size it with propose_plan first, then do it once the user starts it. Never make do with a "
+           "selector or another toolbox type instead of a missing element, and never tell the user something can't be done.\n";
 }
 
 juce::String StellaAi::planContext() const
 {
-    if (planSteps.isEmpty() || planDone)
-        return {};
-
     juce::String text;
-    text << "\nYour plan for the request \"" << planRequest.substring (0, 200) << "\" (the user sees it as a checklist):\n";
 
-    for (int i = 0; i < planSteps.size(); ++i)
-        text << (i + 1) << ". " << planSteps[i]
-             << (i + 1 < planCurrent ? " (done)" : i + 1 == planCurrent ? " (under way)" : "") << "\n";
+    if (! steps.empty() && ! planDone && ! planCancelled)
+    {
+        if (proposalPending)
+            text << "\nYour plan for the request \"" << planRequest.substring (0, 200) << "\" is on show with its price, waiting for the user:\n";
+        else
+            text << "\nYour approved plan for the request \"" << planRequest.substring (0, 200) << "\" (the user sees it as a checklist with "
+                    "the credits each step used):\n";
 
-    text << "Carry on from the step under way (or the first one not done), one step at a time, unless the user now asks for "
-            "something else: then make a new plan.\n";
+        for (size_t i = 0; i < steps.size(); ++i)
+        {
+            const auto number = (int) i + 1;
+            text << number << ". " << steps[i].title << " (" << steps[i].size << "): " << steps[i].builds
+                 << (! proposalPending && number < planCurrent ? " (done)" : ! proposalPending && number == planCurrent ? " (under way)" : "") << "\n";
+        }
+
+        if (proposalPending)
+            text << "Nothing changes until the user starts it. If their message approves it (yes, go ahead, start), call plan with current 1 "
+                    "and begin. If they want it changed, propose the changed plan with propose_plan. If they ask something else, answer "
+                    "it: the plan keeps waiting.\n";
+        else
+            text << "Carry on from the step under way (or the first one not done), one step at a time, calling plan with current as each "
+                    "starts and done: true after the last, unless the user now asks for something else: then propose a new plan.\n";
+    }
+
+    if (! later.empty() && ! planCancelled)
+    {
+        text << "Phases still to come after this plan, as you proposed them:\n";
+
+        for (size_t i = 0; i < later.size(); ++i)
+            text << (int) i + 1 << ". " << later[i].title << ": " << later[i].builds << " (" << later[i].steps << " steps, mostly "
+                 << later[i].size << ")\n";
+
+        text << "When the user asks for the next phase, propose it with propose_plan: its steps, and the phases left after it in later.\n";
+    }
+
     return text;
 }
 
@@ -578,10 +1017,15 @@ void StellaAi::showPlan()
 
 void StellaAi::clearPlan()
 {
-    planSteps.clear();
+    // The phases still to come stay: "next phase" plans the next one.
+    steps.clear();
     planCurrent = 0;
-    planDone = false;
+    planDone = planCancelled = planFinishing = false;
+    proposalPending = planApproved = proposedThisAnswer = userSpokeSinceProposal = overrunPaused = false;
     planRequest.clear();
+    summary.clear();
+    sizingCredits = 0;
+    planEntry = noEntry;   // its card stays as it last was
 }
 
 //==============================================================================

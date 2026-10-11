@@ -138,8 +138,68 @@ ChatPanel::ChatPanel()
     addAndMakeVisible (newPluginButton);
     addAndMakeVisible (openButton);
 
+    // The plan bar's buttons: what they do depends on what the plan waits for.
+    planFirst.setColour (juce::TextButton::buttonColourId, Theme::accent);
+    planFirst.onClick = [this]
+    {
+        if (planWaiting == StellaAi::Waiting::approval) { if (onPlanStart != nullptr) onPlanStart(); }
+        else if (planWaiting == StellaAi::Waiting::overrun) { if (onPlanGoOn != nullptr) onPlanGoOn(); }
+    };
+    planSecond.onClick = [this]
+    {
+        if (planWaiting == StellaAi::Waiting::approval)
+        {
+            askingForChange = true;
+            input.setTextToShowWhenEmpty (juce::String::fromUTF8 ("What should change in the plan?\xe2\x80\xa6"), Theme::muted);
+            input.grabKeyboardFocus();
+            repaint();
+        }
+        else if (planWaiting == StellaAi::Waiting::overrun)
+        {
+            if (onPlanPause != nullptr) onPlanPause();
+        }
+    };
+    planThird.onClick = [this] { if (planWaiting == StellaAi::Waiting::approval && onPlanCancel != nullptr) onPlanCancel(); };
+    planFirst.setTooltip ("Start building this plan");
+    planThird.setTooltip ("Drop this plan: nothing is built");
+    addChildComponent (planFirst);
+    addChildComponent (planSecond);
+    addChildComponent (planThird);
+
     rebuildTranscript ({});
     setAccount ({});
+}
+
+void ChatPanel::setPlanBar (StellaAi::Waiting waiting, const juce::String& text, bool warning)
+{
+    if (waiting == planWaiting && text == planBarText && warning == planBarWarning)
+        return;
+
+    const bool changed = waiting != planWaiting;
+
+    if (changed)
+        askingForChange = false;
+
+    planWaiting = waiting;
+    planBarText = text;
+    planBarWarning = warning;
+
+    if (changed)
+    {
+        const bool approval = waiting == StellaAi::Waiting::approval;
+        planFirst.setButtonText (approval ? "Start" : "Go on");
+        planSecond.setButtonText (approval ? "Change" : "Pause");
+        planThird.setButtonText ("Cancel");
+        planSecond.setTooltip (approval ? "Type what should change: Stella AI makes a new plan" : "Stop here: say \"continue\" later to go on");
+
+        // The request box asks for the change only while there's a plan to change.
+        if (! approval)
+            input.setTextToShowWhenEmpty (juce::String::fromUTF8 ("Describe your plugin\xe2\x80\xa6"), Theme::muted);
+
+        resized();
+    }
+
+    repaint();
 }
 
 //==============================================================================
@@ -481,7 +541,9 @@ void ChatPanel::send()
         return;
 
     const auto files = attachments;
+    askingForChange = false;
     input.clear();
+    input.setTextToShowWhenEmpty (juce::String::fromUTF8 ("Describe your plugin\xe2\x80\xa6"), Theme::muted);
     attachments.clear();
     refreshChips();
 
@@ -628,7 +690,7 @@ void ChatPanel::appendAnswer (const juce::String& text)
             line = trimmed.trimCharactersAtStart ("#").trimStart();
             heading = true;
         }
-        else if (trimmed.startsWith ("- ") || trimmed.startsWith ("* ") || trimmed.startsWith (juce::String::fromUTF8 ("\xe2\x80\xa2 ")))
+        else if (trimmed.startsWith ("- ") || trimmed.startsWith ("* ") || (trimmed[0] == (juce::juce_wchar) 0x2022 && trimmed[1] == ' '))
         {
             prefix = juce::String::repeatedString (" ", juce::jmin (6, line.length() - trimmed.length())) + juce::String::fromUTF8 ("\xe2\x80\xa2 ");
             line = trimmed.substring (2);
@@ -706,19 +768,27 @@ void ChatPanel::rebuildTranscript (const std::vector<StellaAi::Entry>& entries)
 
             case StellaAi::Entry::Kind::plan:
             {
-                // The steps as a checklist: done ones ticked, the one under way bright.
-                const auto lines = juce::StringArray::fromLines (entry.text);
-
-                for (int i = 0; i < lines.size(); ++i)
+                // The plan's card (StellaAi::planText): the title, what it builds, the steps as a
+                // checklist with their credits (done ones ticked, the one under way bright), later
+                // phases and notes, and a warning when the credits may not last.
+                for (const auto& line : juce::StringArray::fromLines (entry.text))
                 {
-                    const auto& line = lines[i];
-                    const bool done = line.startsWith (juce::String::fromUTF8 ("\xe2\x9c\x93"));
-                    const bool now = line.startsWith (juce::String::fromUTF8 ("\xe2\x96\xb8"));
+                    const auto rest = line.substring (2);
 
-                    if (i == 0)
-                        add ("Plan: " + line + "\n", Theme::text, true);
+                    if (line.startsWith ("# "))
+                        add (rest + "\n", Theme::text, true);
+                    else if (line.startsWith ("~ "))
+                        add (rest + "\n", Theme::text.withAlpha (0.88f), false);
+                    else if (line.startsWith ("+ ") || line.startsWith ("= "))
+                        add ("   " + rest + "\n", Theme::muted, false);
+                    else if (line.startsWith ("! "))
+                        add ("   " + rest + "\n", Theme::hot, false);
+                    else if (line[0] == (juce::juce_wchar) 0x2713)   // ✓ done (JUCE's startsWith compares bytes, so by character)
+                        add ("   " + line + "\n", Theme::safe, false);
+                    else if (line[0] == (juce::juce_wchar) 0x25b8)   // ▸ under way
+                        add ("   " + line + "\n", Theme::text, true);
                     else
-                        add ("   " + line + "\n", done ? Theme::safe : now ? Theme::text : Theme::muted, now);
+                        add ("   " + line + "\n", Theme::text.withAlpha (0.72f), false);
                 }
 
                 add ("\n", Theme::text, false);
@@ -744,6 +814,26 @@ void ChatPanel::paint (juce::Graphics& g)
         g.fillRoundedRectangle (inputBox.toFloat(), 8.0f);
         g.setColour (input.hasKeyboardFocus (true) ? Theme::accent.withAlpha (0.6f) : Theme::outline);
         g.drawRoundedRectangle (inputBox.toFloat().reduced (0.5f), 8.0f, 1.0f);
+    }
+
+    if (! planBarArea.isEmpty())
+    {
+        // The plan waits for the user: its price, beside the buttons.
+        const auto box = planBarArea.toFloat();
+        const auto edge = planBarWarning ? Theme::hot : Theme::accent;
+
+        g.setColour (edge.withAlpha (0.10f));
+        g.fillRoundedRectangle (box, 8.0f);
+        g.setColour (edge.withAlpha (0.65f));
+        g.drawRoundedRectangle (box.reduced (0.5f), 8.0f, 1.0f);
+
+        auto textArea = planBarArea.reduced (12, 0);
+        textArea.setRight (planFirst.getX() - 10);
+
+        g.setColour (planBarWarning && ! askingForChange ? Theme::hot : Theme::text);
+        g.setFont (Theme::font (14.0f, true));
+        g.drawFittedText (askingForChange ? juce::String ("Type below what should change in the plan, then press Enter.") : planBarText,
+                          textArea, juce::Justification::centredLeft, 2, 0.9f);
     }
 
     if (dragOver && ! inputBox.isEmpty())
@@ -885,12 +975,46 @@ void ChatPanel::resized()
     }
 
     bodyArea = area;
+    planBarArea = {};
+
+    if (! account.signedIn)
+    {
+        planFirst.setVisible (false);
+        planSecond.setVisible (false);
+        planThird.setVisible (false);
+    }
 
     if (account.signedIn)
     {
         // Attached files as chips above the request box; the attach and send buttons inside it.
         const auto chipRow = chips.isEmpty() ? 0 : 30;
         auto bottom = area.removeFromBottom (inputHeight + chipRow).withTrimmedTop (8).withTrimmedBottom (18);
+
+        // The plan bar, above it all, while the plan waits for the user.
+        const bool showBar = planWaiting != StellaAi::Waiting::nothing;
+        planFirst.setVisible (showBar);
+        planSecond.setVisible (showBar);
+        planThird.setVisible (showBar && planWaiting == StellaAi::Waiting::approval);
+
+        if (showBar)
+        {
+            planBarArea = area.removeFromBottom (56).withTrimmedTop (8);
+            auto buttons = planBarArea.reduced (10, 9);
+
+            if (planThird.isVisible())
+            {
+                planThird.setBounds (buttons.removeFromRight (78));
+                buttons.removeFromRight (6);
+            }
+
+            planSecond.setBounds (buttons.removeFromRight (78));
+            buttons.removeFromRight (6);
+            planFirst.setBounds (buttons.removeFromRight (86));
+        }
+        else
+        {
+            planBarArea = {};
+        }
 
         if (chipRow > 0)
         {
@@ -914,7 +1038,18 @@ void ChatPanel::resized()
 
         transcript.setBounds (area.withTrimmedTop (10).withTrimmedBottom (4));
 
-        // A warning appearing shrinks the conversation: keep its newest lines in view.
+        // A warning or the plan bar appearing shrinks the conversation: keep its newest lines in
+        // view (again once the editor has laid itself out at the new size).
+        transcript.moveCaretToTop (false);
         transcript.moveCaretToEnd();
+
+        juce::MessageManager::callAsync ([safeThis = juce::Component::SafePointer<ChatPanel> (this)]
+        {
+            if (safeThis != nullptr)
+            {
+                safeThis->transcript.moveCaretToTop (false);
+                safeThis->transcript.moveCaretToEnd();
+            }
+        });
     }
 }

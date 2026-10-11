@@ -191,11 +191,21 @@ MainComponent::MainComponent (Settings& s)
 
         recordHistory ("Stella AI: " + (request.length() > 40 ? request.substring (0, 40) + juce::String::fromUTF8 ("\xe2\x80\xa6") : request));
 
-        // A request from an Edit UI menu: its answer shows there too.
+        // A request from an Edit UI menu: its answer shows there too. A plan waiting for
+        // approval is in Build with AI, where its price and Start are.
         if (guiRequestPending)
         {
             guiRequestPending = false;
-            workspace.showAiReply (lastAnswer());
+
+            if (ai.getWaiting() == StellaAi::Waiting::approval)
+            {
+                workspace.showAiReply ("The plan and its price are in Build with AI: start it there.");
+                workspace.showTab (Workspace::aiTab);
+            }
+            else
+            {
+                workspace.showAiReply (lastAnswer());
+            }
         }
     };
 
@@ -234,7 +244,20 @@ MainComponent::MainComponent (Settings& s)
     };
 
     server.onStateChanged = [this] { connectionChanged(); };
-    ai.onChanged = [this] { chat.setConversation (ai.getEntries(), ai.isBusy()); };
+    ai.onChanged = [this]
+    {
+        chat.setConversation (ai.getEntries(), ai.isBusy());
+        chat.setPlanBar (ai.getWaiting(), ai.getWaitingText(), ai.isWaitingWarning());
+    };
+
+    // Stella AI's estimates learn what plan steps really cost.
+    ai.averageStepCost = [this] (const juce::String& size) { return settings.getStepCost (size); };
+    ai.onStepCost = [this] (const juce::String& size, int credits) { settings.addStepCost (size, credits); };
+
+    chat.onPlanStart = [this] { ai.approvePlan(); };
+    chat.onPlanCancel = [this] { ai.cancelPlan(); };
+    chat.onPlanGoOn = [this] { ai.continueStep(); };
+    chat.onPlanPause = [this] { ai.pausePlan(); };
 
     chat.onSend = [this] (const juce::String& request, const juce::Array<juce::File>& files) { sendFromChat (request, files); };
     chat.onStop = [this] { ai.stop(); };
@@ -279,6 +302,8 @@ MainComponent::~MainComponent()
     logWindow = nullptr;
     server.onStateChanged = nullptr;
     ai.onChanged = nullptr;
+    ai.averageStepCost = nullptr;
+    ai.onStepCost = nullptr;
     ai.onTurnStarted = nullptr;
     ai.onTurnFinished = nullptr;
     presetDialog = nullptr;
@@ -1008,6 +1033,7 @@ void MainComponent::connectionChanged()
     account.lastEmail = server.getLastEmail();
 
     chat.setAccount (account);
+    chat.setPlanBar (ai.getWaiting(), ai.getWaitingText(), ai.isWaitingWarning());   // "you have" follows the credits
 }
 
 void MainComponent::buyCredits()

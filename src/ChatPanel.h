@@ -24,7 +24,9 @@
     Signed in, it shows the account's email.
 
     Below: until the user signs in, only "Sign in to start using Stella AI". Once signed
-    in, the conversation, the guide and the request box appear.
+    in, the conversation, the guide and the request box appear. When Stella AI's plan waits
+    for the user, a bar above the request box says its price, with Start, Change and Cancel
+    (or, for a step that ran over its estimate, Go on and Pause).
 
     When the studio can't get online, a warning sits above the body (with Retry) until it
     can: no internet, or Fanan's server not answering, each with its own words.
@@ -48,6 +50,10 @@ public:
 
     void setConversation (const std::vector<StellaAi::Entry>& entries, bool busy);
 
+    /** What the plan waits for (nothing hides the bar), the price line, and whether the
+        credits may not last. */
+    void setPlanBar (StellaAi::Waiting waiting, const juce::String& text, bool warning);
+
     /** Puts the cursor in the request box (when the tab is shown). */
     void focusInput();
     void setAccount (const Account& newAccount);
@@ -61,6 +67,10 @@ public:
     std::function<void()> onNewPlugin;
     std::function<void()> onOpenPlugin;
     std::function<void()> onStop;      // Stella AI is working: Send turns into Stop
+
+    // The plan bar.
+    std::function<void()> onPlanStart, onPlanCancel;     // Change only asks for the change in the request box
+    std::function<void()> onPlanGoOn, onPlanPause;       // a step over its estimate
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -138,6 +148,13 @@ private:
     juce::String typedEmail;   // kept while the box shows something else
 
     juce::Rectangle<int> titleRow, accountRow, warningArea, bodyArea;
+
+    StellaAi::Waiting planWaiting = StellaAi::Waiting::nothing;
+    juce::String planBarText;
+    bool planBarWarning = false;
+    bool askingForChange = false;   // Change was pressed: the bar asks for the change until it's sent
+    juce::TextButton planFirst, planSecond, planThird;   // Start / Change / Cancel, or Go on / Pause
+    juce::Rectangle<int> planBarArea;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ChatPanel)
 };

@@ -288,18 +288,54 @@ juce::var ProjectTools::getDefinitions (bool builder) const
     }
 
     {
-        // Handled by the conversation itself (StellaAi): a checklist the user watches.
+        // Handled by the conversation itself (StellaAi): the plan and its price, for the user to approve.
+        auto stepItem = object();
+        stepItem.getDynamicObject()->setProperty ("type", "object");
+        auto stepProps = object();
+        stepProps.getDynamicObject()->setProperty ("title", property ("string", "A few plain words in the user's language, e.g. \"Filter sound\" (no file or code names)."));
+        stepProps.getDynamicObject()->setProperty ("builds", property ("string", "What this step builds, in one short plain sentence for a musician."));
+        stepProps.getDynamicObject()->setProperty ("size", property ("string", "\"small\", \"medium\" or \"large\", as the guide's \"Plans and prices\" defines them."));
+        stepItem.getDynamicObject()->setProperty ("properties", stepProps);
+        stepItem.getDynamicObject()->setProperty ("required", juce::Array<juce::var> { "title", "builds", "size" });
+
+        auto phaseItem = object();
+        phaseItem.getDynamicObject()->setProperty ("type", "object");
+        auto phaseProps = object();
+        phaseProps.getDynamicObject()->setProperty ("title", property ("string", "The phase in a few plain words."));
+        phaseProps.getDynamicObject()->setProperty ("builds", property ("string", "What it adds, in one short plain sentence."));
+        phaseProps.getDynamicObject()->setProperty ("steps", property ("integer", "How many steps it will take (1 to 12)."));
+        phaseProps.getDynamicObject()->setProperty ("size", property ("string", "Its typical step: \"small\", \"medium\" or \"large\"."));
+        phaseItem.getDynamicObject()->setProperty ("properties", phaseProps);
+        phaseItem.getDynamicObject()->setProperty ("required", juce::Array<juce::var> { "title", "builds", "steps", "size" });
+
         auto props = object();
-        props.getDynamicObject()->setProperty ("steps", listProperty ("string", "The steps in order, a few plain words each in the user's language (no file or code names), "
-                                                                                 "e.g. [\"New filter types\", \"Filter sound\", \"Try it out\", \"Panel with drop-down lists\"]. "
-                                                                                 "Giving steps starts a new plan."));
+        props.getDynamicObject()->setProperty ("summary", property ("string", "What the user gets, honestly, in one or two plain sentences in their language."));
+
+        auto stepsList = property ("array", "This plan's steps in order, at most 12: one file per step, then build and fix, then the panel.");
+        stepsList.getDynamicObject()->setProperty ("items", stepItem);
+        props.getDynamicObject()->setProperty ("steps", stepsList);
+
+        auto laterList = property ("array", "Only for a request too big for 12 steps: the phases that come after this plan, in order.");
+        laterList.getDynamicObject()->setProperty ("items", phaseItem);
+        props.getDynamicObject()->setProperty ("later", laterList);
+
+        tools.add (tool ("propose_plan",
+                         "Shows the user your plan for this request with its price in credits, and waits for them to start it, change "
+                         "it or cancel it. Every request that changes the plugin (sound, panel or presets) needs an approved plan: "
+                         "nothing changes before. Call it as soon as you know the job (read the project first if you need to), and "
+                         "write nothing else in that answer.",
+                         props, { "summary", "steps" }));
+    }
+
+    {
+        // Handled by the conversation itself (StellaAi): the checklist ticks along.
+        auto props = object();
         props.getDynamicObject()->setProperty ("current", property ("integer", "The step starting now, counting from 1."));
         props.getDynamicObject()->setProperty ("done", property ("boolean", "true when the last step is finished."));
         tools.add (tool ("plan",
-                         "Shows the user your steps for this request as a checklist that ticks along. For any request that takes more "
-                         "than one step, call it first with all the steps (small ones: one file per step, then build, then the panel) "
-                         "and current 1; then with current as each next step starts (in the same answer as that step's own tool calls); "
-                         "then with done: true. The project's description shows an unfinished plan: carry on from it.",
+                         "Moves the approved plan's checklist along: call it with current as each step starts (in the same answer as "
+                         "that step's own tool calls), then with done: true after the last step. The project's description shows an "
+                         "unfinished plan: carry on from it.",
                          props, {}));
     }
 
@@ -312,7 +348,7 @@ juce::var ProjectTools::getDefinitions (bool builder) const
                          builder ? "Already building: there's no need to call this."
                                  : "Hands over to Stella's builder to create or change the plugin's sound: anything that needs code written or "
                                    "changed (a new kind of GUI element the toolbox doesn't have, too), or the graph rewired. Call it as soon as "
-                                   "the user asks for a plugin or a change to one.",
+                                   "the user asks for a plugin or a change to one: the builder sizes the job and shows its plan and price.",
                          props, { "task" }));
     }
 

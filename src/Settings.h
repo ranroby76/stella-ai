@@ -7,8 +7,8 @@
 //==============================================================================
 /**
     The studio's own settings: recent projects, the projects folder, the company
-    name new plugins get, the window's position, and whether a sound says Stella AI
-    has finished.
+    name new plugins get, the window's position, whether a sound says Stella AI
+    has finished, and what Stella AI's plan steps really cost (for its estimates).
 
     Kept in one JSON file next to the executable, so a development build writes
     nothing outside its build folder.
@@ -37,6 +37,13 @@ public:
     /** A short sound when Stella AI finishes a request (on unless turned off). */
     bool getFinishSound() const;
     void setFinishSound (bool shouldPlay);
+
+    /** What a plan step of a size ("small", "medium", "large") really cost on average, in
+        credits, over the last steps of that size (0 until a few were measured), and a
+        finished step's cost. */
+    double getStepCost (const juce::String& size) const;
+    void addStepCost (const juce::String& size, int credits);
+    static constexpr int stepCostMinimum = 3, stepCostWindow = 20;
 
     static juce::File getFile();
     static juce::File getDefaultProjectsFolder();
