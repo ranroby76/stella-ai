@@ -43,6 +43,7 @@ juce::String PluginCanvas::typeDisplayName (GuiWidget::Type type)
         case GuiWidget::Type::image:     return "Picture";
         case GuiWidget::Type::keyboard:  return "Keyboard";
         case GuiWidget::Type::custom:    return "Programmed element";
+        case GuiWidget::Type::registration: return "Registration";
     }
 
     return "Element";
@@ -53,7 +54,7 @@ juce::Colour PluginCanvas::standardColour (const GuiWidget& w)
     if (w.type == GuiWidget::Type::label || w.type == GuiWidget::Type::group || w.type == GuiWidget::Type::shape)
         return captionColour;
 
-    return w.type == GuiWidget::Type::lamp ? juce::Colour (0xffffb020) : defaultAccent;
+    return w.type == GuiWidget::Type::lamp || w.type == GuiWidget::Type::registration ? juce::Colour (0xffffb020) : defaultAccent;
 }
 
 juce::Rectangle<int> PluginCanvas::defaultBounds (GuiWidget::Type type, int x, int y)
@@ -77,6 +78,7 @@ juce::Rectangle<int> PluginCanvas::defaultBounds (GuiWidget::Type type, int x, i
         case GuiWidget::Type::image:     return { x, y, 160, 120 };
         case GuiWidget::Type::keyboard:  return { x, y, 600, 90 };
         case GuiWidget::Type::custom:    return { x, y, 160, 32 };
+        case GuiWidget::Type::registration: return { x, y, 236, 26 };
     }
 
     return { x, y, 60, 60 };
@@ -417,6 +419,11 @@ int PluginCanvas::addElement (GuiWidget w, std::optional<juce::Point<float>> cen
             if (w.label.isEmpty())
                 if (const auto* p = paramById (w.param))
                     w.label = p->name;
+            break;
+
+        case GuiWidget::Type::registration:
+            if (w.label.isEmpty())
+                w.label = registrationText();
             break;
 
         case GuiWidget::Type::preset:
@@ -1118,6 +1125,16 @@ void PluginCanvas::drawWidget (juce::Graphics& g, int index, Part part, float ov
         return;
     }
 
+    // The registration badge: shown here as the plugin shows it until it's registered. Export
+    // keeps it out of the panel's images (the plugin draws it, and hides it once registered).
+    if (w.type == GuiWidget::Type::registration)
+    {
+        if (part == Part::all)
+            drawRegistration (g, w);
+
+        return;
+    }
+
     // A programmed element draws itself, all of it moving (Export leaves it to the plugin).
     if (w.type == GuiWidget::Type::custom)
     {
@@ -1361,6 +1378,7 @@ void PluginCanvas::drawWidget (juce::Graphics& g, int index, Part part, float ov
         case GuiWidget::Type::filter:
         case GuiWidget::Type::keyboard:
         case GuiWidget::Type::custom:
+        case GuiWidget::Type::registration:
             break;   // drawn above
     }
 }
@@ -1540,10 +1558,33 @@ juce::Rectangle<int> PluginCanvas::movingAreaOf (const GuiWidget& w) const
         case GuiWidget::Type::label:
         case GuiWidget::Type::group:
         case GuiWidget::Type::shape:
-        case GuiWidget::Type::image:     break;
+        case GuiWidget::Type::image:
+        case GuiWidget::Type::registration: break;   // the plugin draws it itself
     }
 
     return {};
+}
+
+juce::String PluginCanvas::registrationText()
+{
+    return juce::String::fromUTF8 ("UNREGISTERED \xc2\xb7 click to register");
+}
+
+void PluginCanvas::drawRegistration (juce::Graphics& g, const GuiWidget& w)
+{
+    // A dark pill with an outline and words in the badge's colour (amber unless chosen).
+    const auto box = w.bounds.toFloat().reduced (0.5f);
+    const auto colour = w.colour.isTransparent() ? standardColour (w) : w.colour;
+    const auto radius = juce::jmin (box.getHeight() * 0.5f, 14.0f);
+
+    g.setColour (juce::Colour (0xe8141418));
+    g.fillRoundedRectangle (box, radius);
+    g.setColour (colour.withAlpha (0.85f));
+    g.drawRoundedRectangle (box, radius, 1.0f);
+    g.setColour (colour.brighter (0.15f));
+    g.setFont (Theme::font (juce::jlimit (9.0f, 18.0f, box.getHeight() * 0.48f), true));
+    g.drawFittedText (w.label.isNotEmpty() ? w.label : registrationText(), w.bounds.reduced (juce::roundToInt (radius * 0.6f), 0),
+                      juce::Justification::centred, 1, 0.8f);
 }
 
 void PluginCanvas::drawPanel (juce::Graphics& g)
@@ -1613,6 +1654,26 @@ PluginCanvas::Bake PluginCanvas::bake()
         for (int i = 0; i < (int) layout.widgets.size(); ++i)
             if (! layered[(size_t) i])
                 drawWidget (g, i, Part::still);
+    }
+
+    // The registration badge (the first one), on its own: a protected plugin draws it until
+    // it's registered.
+    for (const auto& w : layout.widgets)
+    {
+        if (w.type != GuiWidget::Type::registration)
+            continue;
+
+        result.registrationArea = w.bounds.getIntersection ({ 0, 0, layout.width, layout.height });
+
+        if (! result.registrationArea.isEmpty())
+        {
+            result.registration = juce::Image (juce::Image::ARGB, result.registrationArea.getWidth(), result.registrationArea.getHeight(), true);
+            juce::Graphics g (result.registration);
+            g.setOrigin ({ -result.registrationArea.getX(), -result.registrationArea.getY() });
+            drawRegistration (g, w);
+        }
+
+        break;
     }
 
     std::map<juce::String, int> lookStrips;   // controls with the same look and size share frames
@@ -1698,7 +1759,8 @@ PluginCanvas::Bake PluginCanvas::bake()
             case GuiWidget::Type::shape:
             case GuiWidget::Type::image:
             case GuiWidget::Type::keyboard:           // its keys are in the background; the plugin draws the ones that are down
-            case GuiWidget::Type::custom:    break;   // the plugin draws it itself
+            case GuiWidget::Type::custom:             // the plugin draws it itself
+            case GuiWidget::Type::registration: break;
         }
 
         if (frames == 0)

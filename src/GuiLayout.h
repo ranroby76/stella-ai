@@ -15,12 +15,13 @@
 struct GuiWidget
 {
     enum class Type { knob, slider, toggle, selector, label, group,
-                      meter, scope, lamp, envelope, filter, xy, shape, preset, image, keyboard, custom };
+                      meter, scope, lamp, envelope, filter, xy, shape, preset, image, keyboard, custom,
+                      registration };   // Fanan's copy protection: the "Unregistered" badge (see Protection)
 
     Type type = Type::knob;
     juce::Rectangle<int> bounds;   // in the plugin window's pixels; controls include their caption
     juce::String param;            // "<moduleId>.<paramId>" for controls
-    juce::String label;            // a control's caption, a group's title, or a label's text
+    juce::String label;            // a control's caption, a group's title, a label's or registration badge's text
     juce::String style;            // knobs, sliders, switches: the name of a look (see Looks)
     juce::Colour colour;           // labels, frames, selectors and the like: their colour (transparent: the default)
     float fontSize = 0.0f;         // labels and group titles (0: the default)

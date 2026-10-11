@@ -368,7 +368,7 @@ void PluginCanvas::ElementMenu::showFor (int widgetIndex)
             if (typeOrder[i] == t)
                 type.setSelectedId (i + 1, juce::dontSendNotification);
 
-        setShown (type, ! custom);   // a programmed element stays what it is
+        setShown (type, ! custom && t != GuiWidget::Type::registration);   // a programmed element (or the badge) stays what it is
 
         if (w.isControl() || custom)
         {
@@ -418,7 +418,7 @@ void PluginCanvas::ElementMenu::showFor (int widgetIndex)
             setShown (mode, true);
         }
 
-        const bool isText = t == GuiWidget::Type::label || t == GuiWidget::Type::group;
+        const bool isText = t == GuiWidget::Type::label || t == GuiWidget::Type::group || t == GuiWidget::Type::registration;
         const bool hasCaption = t != GuiWidget::Type::image && t != GuiWidget::Type::shape && t != GuiWidget::Type::preset
                              && t != GuiWidget::Type::keyboard;
 
@@ -428,7 +428,7 @@ void PluginCanvas::ElementMenu::showFor (int widgetIndex)
         textSize.setText (w.fontSize > 0.0f ? juce::String (w.fontSize, 1).trimCharactersAtEnd ("0").trimCharactersAtEnd (".") : juce::String(),
                           juce::dontSendNotification);
         boldToggle.setToggleState (w.bold, juce::dontSendNotification);
-        setShown (textSize, isText);
+        setShown (textSize, isText && t != GuiWidget::Type::registration);   // the badge's words fit its height
 
         if (Looks::takesLook (w) && canvas.looks != nullptr)
         {

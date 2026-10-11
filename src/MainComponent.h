@@ -44,7 +44,12 @@ public:
     void playFinishSound();   // Stella AI has finished
     void saveProject();     // what's waiting is written now
     void saveProjectAs();   // a copy in a new folder, under a new name, and work goes on there
-    void toggleProtection();      // Fanan's registration in the exported plugin, or not
+    // Fanan's registration: on when the panel has the Registration badge (the toolbox's
+    // "Registration"), which Options can place or take away; its key is made the first time.
+    bool hasRegistration() const;
+    void syncProtection (bool explain);   // after the layout changes; explain: say what it means when it turns on
+    void explainProtection();
+    void toggleProtection();
     void openSerialGenerator();   // the plugin's serial generator page, in the browser
 
 private:

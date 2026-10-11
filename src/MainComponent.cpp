@@ -122,7 +122,7 @@ MainComponent::MainComponent (Settings& s)
             playFinishSound();   // so it's heard what it sounds like
     };
 
-    topBar.isProtectionOn = [this] { return project.isOpen() && Protection::load (project.getFolder()).isOn(); };
+    topBar.isProtectionOn = [this] { return hasRegistration(); };
     topBar.onToggleProtection = [this] { toggleProtection(); };
     topBar.onSerialGenerator = [this] { openSerialGenerator(); };
 
@@ -428,12 +428,14 @@ void MainComponent::loadLayout (bool makeOneIfMissing)
     if (GuiLayout::load (file, layout).wasOk())
     {
         workspace.setLayout (layout);
+        syncProtection (false);   // Stella AI or an undo may have placed or removed the badge
         return;
     }
 
     if (! makeOneIfMissing || preview.getParameters().isEmpty())
     {
         workspace.setLayout ({});
+        syncProtection (false);
         return;
     }
 
@@ -454,9 +456,14 @@ void MainComponent::saveLayout()
         return;
 
     if (const auto saved = workspace.getLayout().save (project.getGuiFolder().getChildFile (GuiLayout::fileName)); saved.failed())
+    {
         showError ("Couldn't save the GUI", saved.getErrorMessage());
+    }
     else
+    {
         recordHistory ("Changed the GUI");
+        syncProtection (true);   // the Registration badge placed or removed by hand
+    }
 }
 
 //==============================================================================
@@ -843,6 +850,10 @@ void MainComponent::exportPlugin()
         return;
     }
 
+    // The panel as it is now, and the protection to match it (with its key).
+    flushLayoutSave();
+    syncProtection (false);
+
     exporting = true;
     workspace.setExporting (true);
 
@@ -1131,37 +1142,56 @@ void MainComponent::saveProject()
     topBar.showNotice ("Saved");
 }
 
-void MainComponent::toggleProtection()
+bool MainComponent::hasRegistration() const
+{
+    if (! project.isOpen())
+        return false;
+
+    for (const auto& w : workspace.getLayout().widgets)
+        if (w.type == GuiWidget::Type::registration)
+            return true;
+
+    return false;
+}
+
+void MainComponent::syncProtection (bool explain)
 {
     if (! project.isOpen())
         return;
 
+    // The badge on the panel is the switch; protection.json keeps the key (made the first
+    // time, then kept, so serials made before still work when the badge comes back).
     const auto folder = project.getFolder();
+    const bool wanted = hasRegistration();
     auto protection = Protection::load (folder);
-    const bool turningOn = ! protection.isOn();
 
-    protection.setOn (turningOn);
+    if (protection.isOn() == wanted)
+        return;
+
+    protection.setOn (wanted);
 
     if (const auto saved = protection.save (folder); saved.failed())
     {
-        showError ("Couldn't change the protection", saved.getErrorMessage());
+        showError ("Couldn't save the plugin's serial number key", saved.getErrorMessage());
         return;
     }
 
-    if (! turningOn)
-    {
-        topBar.showNotice ("Protection off: the next export plays freely");
-        return;
-    }
+    if (! wanted)
+        topBar.showNotice ("Unprotected");   // short: it sits beside the audio device
+    else if (explain)
+        explainProtection();
+    else
+        topBar.showNotice ("Protected");
+}
 
-    const auto name = project.getInfo().name;
-
+void MainComponent::explainProtection()
+{
     auto options = juce::MessageBoxOptions()
                        .withTitle ("Protected with a serial number")
                        .withIconType (juce::MessageBoxIconType::NoIcon)
-                       .withMessage ("From the next export, " + name + " asks for a serial number. Until it's registered it plays "
-                                     "in demo mode: 18 seconds of sound, then 3 seconds of silence, over and over, with an "
-                                     "\"Unregistered\" badge in its panel.\n\n"
+                       .withMessage ("From the next export, " + project.getInfo().name + " asks for a serial number. Until it's "
+                                     "registered it plays in demo mode: 18 seconds of sound, then 3 seconds of silence, over and "
+                                     "over, with the Registration badge on its panel.\n\n"
                                      "To register, your customer clicks the badge and sends you the Machine ID it shows. Type it "
                                      "into the serial generator (Options > Serial generator) and send back the serial it makes.\n\n"
                                      "The plugin's key is kept in protection.json in the project folder: back up the project "
@@ -1177,17 +1207,57 @@ void MainComponent::toggleProtection()
     });
 }
 
+void MainComponent::toggleProtection()
+{
+    if (! project.isOpen())
+        return;
+
+    flushLayoutSave();
+    auto layout = workspace.getLayout();
+
+    if (hasRegistration())
+    {
+        // Off: the badge goes (the key stays).
+        layout.widgets.erase (std::remove_if (layout.widgets.begin(), layout.widgets.end(),
+                                              [] (const GuiWidget& w) { return w.type == GuiWidget::Type::registration; }),
+                              layout.widgets.end());
+    }
+    else
+    {
+        if (! project.getGuiFolder().getChildFile (GuiLayout::fileName).existsAsFile())
+        {
+            showError ("No panel yet", "The badge goes on the plugin's panel: once the plugin plays, it has one (or design it in "
+                                       "Edit UI). Then switch protection on.");
+            return;
+        }
+
+        // On: the badge in the bottom right corner, in front of everything (move it in Edit UI).
+        GuiWidget badge;
+        badge.type = GuiWidget::Type::registration;
+        badge.label = PluginCanvas::registrationText();
+        badge.bounds = PluginCanvas::defaultBounds (GuiWidget::Type::registration, 0, 0);
+        badge.bounds.setPosition (juce::jmax (0, layout.width - badge.bounds.getWidth() - 8),
+                                  juce::jmax (0, layout.height - badge.bounds.getHeight() - 8));
+        layout.widgets.push_back (badge);
+    }
+
+    workspace.setLayout (layout);
+    saveLayout();   // records it for undo, and switches the protection
+}
+
 void MainComponent::openSerialGenerator()
 {
     if (! project.isOpen())
         return;
 
+    syncProtection (false);
     const auto folder = project.getFolder();
     const auto protection = Protection::load (folder);
 
-    if (! protection.isOn())
+    if (! hasRegistration() || ! protection.hasKey())
     {
-        showError ("Not protected", "Switch on Options > Protect with a serial number first.");
+        showError ("Not protected", "Place the Registration badge on the panel (Edit UI's toolbox, under Protection), or switch on "
+                                    "Options > Protect with a serial number.");
         return;
     }
 

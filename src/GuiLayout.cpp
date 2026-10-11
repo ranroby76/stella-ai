@@ -62,6 +62,7 @@ juce::String GuiLayout::typeName (GuiWidget::Type type)
         case GuiWidget::Type::image:     return "image";
         case GuiWidget::Type::keyboard:  return "keyboard";
         case GuiWidget::Type::custom:    return "custom";
+        case GuiWidget::Type::registration: return "registration";
     }
 
     return "knob";
@@ -97,6 +98,9 @@ GuiWidget::Type GuiLayout::typeFromName (const juce::String& name)
     if (n == "image" || n == "picture" || n == "bitmap" || n == "photo") return GuiWidget::Type::image;
     if (n == "keyboard" || n == "keys" || n == "piano" || n == "pianokeyboard" || n == "virtualkeyboard" || n == "midikeyboard")
         return GuiWidget::Type::keyboard;
+    if (n == "registration" || n == "register" || n == "protection" || n == "copyprotection" || n == "serial" || n == "licence"
+        || n == "license")
+        return GuiWidget::Type::registration;
     if (n.isEmpty() || n == "knob" || n == "rotary" || n == "dial")   return GuiWidget::Type::knob;
 
     // Anything else is a programmed element: "custom" with its "element", or its own name.
@@ -254,7 +258,8 @@ GuiWidget GuiLayout::widgetFromVar (const juce::var& item)
             for (const auto& setting : settings->getProperties())
                 w.settings[setting.name.toString()] = setting.value;
     }
-    w.label = item.getProperty (w.type == GuiWidget::Type::label || w.type == GuiWidget::Type::group ? "text" : "label", {}).toString();
+    w.label = item.getProperty (w.type == GuiWidget::Type::label || w.type == GuiWidget::Type::group || w.type == GuiWidget::Type::registration
+                                    ? "text" : "label", {}).toString();
 
     if (w.label.isEmpty())
         w.label = item.getProperty ("label", item.getProperty ("text", {})).toString();
@@ -305,11 +310,12 @@ GuiWidget GuiLayout::widgetFromVar (const juce::var& item)
         const auto t = w.type;
         const auto defaultW = t == GuiWidget::Type::slider ? 32 : t == GuiWidget::Type::toggle ? 48 : t == GuiWidget::Type::meter ? 18
                             : t == GuiWidget::Type::lamp ? 30 : t == GuiWidget::Type::xy ? 160 : t == GuiWidget::Type::label ? 160
-                            : t == GuiWidget::Type::image ? 160 : t == GuiWidget::Type::keyboard ? 600 : t == GuiWidget::Type::custom ? 160 : 200;
+                            : t == GuiWidget::Type::image ? 160 : t == GuiWidget::Type::keyboard ? 600 : t == GuiWidget::Type::custom ? 160
+                            : t == GuiWidget::Type::registration ? 236 : 200;
         const auto defaultH = t == GuiWidget::Type::slider ? 140 : t == GuiWidget::Type::toggle ? 48 : t == GuiWidget::Type::meter ? 140
                             : t == GuiWidget::Type::lamp ? 44 : t == GuiWidget::Type::xy ? 180 : t == GuiWidget::Type::label ? 28
                             : t == GuiWidget::Type::preset ? 28 : t == GuiWidget::Type::group ? 160 : t == GuiWidget::Type::keyboard ? 90
-                            : t == GuiWidget::Type::custom ? 32 : 120;
+                            : t == GuiWidget::Type::custom ? 32 : t == GuiWidget::Type::registration ? 26 : 120;
         w.bounds = { x, y, juce::jlimit (8, maxWidth, intOf (item, "w", defaultW)), juce::jlimit (8, maxHeight, intOf (item, "h", defaultH)) };
     }
 
@@ -350,7 +356,8 @@ juce::var GuiLayout::widgetToVar (const GuiWidget& w)
         set (item, "param", w.param);
 
     if (w.label.isNotEmpty())
-        set (item, w.type == GuiWidget::Type::label || w.type == GuiWidget::Type::group ? "text" : "label", w.label);
+        set (item, w.type == GuiWidget::Type::label || w.type == GuiWidget::Type::group || w.type == GuiWidget::Type::registration
+                       ? "text" : "label", w.label);
 
     if (w.style.isNotEmpty())
         set (item, "style", w.style);

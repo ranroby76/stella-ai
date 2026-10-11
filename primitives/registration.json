@@ -1,0 +1,12 @@
+{
+  "name": "Registration",
+  "category": "Protection",
+  "order": 300,
+  "icon": "registration",
+  "description": "Fanan's copy protection: the plugin plays in demo mode until it's registered with a serial number. This is its \"Unregistered\" badge; customers click it to register.",
+  "widget": {
+    "type": "registration",
+    "w": 236,
+    "h": 26
+  }
+}

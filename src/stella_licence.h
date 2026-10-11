@@ -45,6 +45,7 @@ namespace stella::licence
     extern const unsigned char keyA[32], keyB[32];
     extern const unsigned char badgePng[];
     extern const int badgePngSize;
+    extern const int badgeX, badgeY;   // where the panel's Registration element put it (-1: bottom right)
 
     constexpr int serialDigits = 9;
     constexpr double demoPlaySeconds = 18.0, demoSilentSeconds = 3.0;

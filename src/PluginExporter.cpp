@@ -2,7 +2,6 @@
 
 #include "PluginExporter.h"
 #include "Protection.h"
-#include "StellaLookAndFeel.h"
 #include "WasmCompiler.h"
 
 #include "StellaRuntimeData.h"
@@ -119,32 +118,8 @@ namespace
         return out.getMemoryBlock();
     }
 
-    /** A protected plugin's badge, until it's registered: a dark pill with amber words. */
-    juce::Image licenceBadge()
-    {
-        const auto text = juce::String::fromUTF8 ("UNREGISTERED \xc2\xb7 click to register");
-        const auto font = Theme::font (12.5f, true);
-
-        juce::GlyphArrangement glyphs;
-        glyphs.addLineOfText (font, text, 0.0f, 0.0f);
-        const auto width = (int) std::ceil (glyphs.getBoundingBox (0, glyphs.getNumGlyphs(), true).getWidth()) + 26, height = 26;
-
-        juce::Image image (juce::Image::ARGB, width, height, true);
-        juce::Graphics g (image);
-        const auto box = image.getBounds().toFloat().reduced (0.5f);
-
-        g.setColour (juce::Colour (0xe8141418));
-        g.fillRoundedRectangle (box, 13.0f);
-        g.setColour (juce::Colour (0xffffb020).withAlpha (0.85f));
-        g.drawRoundedRectangle (box, 13.0f, 1.0f);
-        g.setColour (juce::Colour (0xffffc04a));
-        g.setFont (font);
-        g.drawText (text, image.getBounds(), juce::Justification::centred, false);
-        return image;
-    }
-
-    /** The plugin's serial number key, scrambled (two halves to XOR), and its badge. */
-    juce::String licenceSource (const juce::MemoryBlock& key, const juce::MemoryBlock& badge)
+    /** The plugin's serial number key, scrambled (two halves to XOR), and its badge with where it goes. */
+    juce::String licenceSource (const juce::MemoryBlock& key, const juce::MemoryBlock& badge, int badgeX, int badgeY)
     {
         juce::MemoryBlock halfA (32), halfB (32);
         auto& random = juce::Random::getSystemRandom();
@@ -165,7 +140,8 @@ namespace
         appendBytes (out, halfB);
         out << "    };\n\n    extern const unsigned char badgePng[] =\n    {\n";
         appendBytes (out, badge);
-        out << "    };\n\n    extern const int badgePngSize = " << (int) badge.getSize() << ";\n}\n";
+        out << "    };\n\n    extern const int badgePngSize = " << (int) badge.getSize() << ";\n"
+            << "    extern const int badgeX = " << badgeX << ", badgeY = " << badgeY << ";\n}\n";
         return out.toString();
     }
 
@@ -251,7 +227,13 @@ PluginExporter::Gui PluginExporter::prepareGui (const GuiLayout& layout, const P
     gui.width = layout.width;
     gui.height = layout.height;
     gui.background = png (bake.background);
-    gui.licenceBadge = png (licenceBadge());   // used only if the project is protected
+    // The registration badge, when the panel has one: the plugin is protected, and draws it there.
+    if (bake.registration.isValid())
+    {
+        gui.licenceBadge = png (bake.registration);
+        gui.badgeX = bake.registrationArea.getX();
+        gui.badgeY = bake.registrationArea.getY();
+    }
 
     for (const auto& strip : bake.strips)
         gui.strips.push_back ({ png (strip.image), strip.frameWidth, strip.frameHeight, strip.frames });
@@ -291,6 +273,8 @@ PluginExporter::Gui PluginExporter::prepareGui (const GuiLayout& layout, const P
             case GuiWidget::Type::label:
             case GuiWidget::Type::group:
             case GuiWidget::Type::shape:     kind = strip >= 0 ? "picture" : nullptr; break;
+            // The registration badge goes in with the protection (prepareGui), not as a widget.
+            case GuiWidget::Type::registration: break;
         }
 
         if (kind == nullptr || area.isEmpty())
@@ -433,15 +417,15 @@ PluginExporter::Result PluginExporter::exportPlugins (const juce::File& projectF
         return result;
     }
 
-    // Protected: Fanan's registration goes in. It lives in the plugin's panel (the badge and
-    // its window), so a protected plugin needs one.
+    // Protected (the panel has the Registration badge): Fanan's registration goes in, with the
+    // plugin's own key (made when the badge was placed).
     const auto protection = Protection::load (projectFolder);
-    const bool isProtected = protection.isOn();
+    const bool isProtected = ! gui.licenceBadge.isEmpty();
 
-    if (isProtected && gui.background.isEmpty())
+    if (isProtected && ! protection.hasKey())
     {
-        result.log = "This plugin is protected with a serial number, and customers register it in its panel: design the panel "
-                     "in Edit UI first, then export again.";
+        result.log = "This plugin has the Registration badge, but its serial number key is missing (protection.json in the project "
+                     "folder). Remove the badge and place it again, then export again.";
         return result;
     }
 
@@ -505,7 +489,8 @@ PluginExporter::Result PluginExporter::exportPlugins (const juce::File& projectF
         || ! work.getChildFile ("stella_plugin_info.h").replaceWithText (pluginInfo)
         || (isProtected && (! writeData ("stella_licence.h", StellaRuntimeData::stella_licence_h, StellaRuntimeData::stella_licence_hSize)
                             || ! work.getChildFile ("stella_licence_data.cpp").replaceWithText (licenceSource (protection.getKey(),
-                                                                                                                 gui.licenceBadge)))))
+                                                                                                                 gui.licenceBadge,
+                                                                                                                 gui.badgeX, gui.badgeY)))))
     {
         result.log = "Couldn't write into the build folder " + work.getFullPathName();
         return result;

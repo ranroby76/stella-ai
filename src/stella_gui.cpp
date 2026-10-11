@@ -499,7 +499,8 @@ namespace stella::gui
        #if STELLA_PROTECTED
         if (badge.width > 0 && ! licence::isRegistered())
         {
-            const auto bx = width - badge.width - 8, by = height - badge.height - 8;
+            const auto bx = licence::badgeX >= 0 ? licence::badgeX : width - badge.width - 8;
+            const auto by = licence::badgeY >= 0 ? licence::badgeY : height - badge.height - 8;
             return x >= bx && x < bx + badge.width && y >= by && y < by + badge.height;
         }
        #else
@@ -1264,9 +1265,10 @@ namespace stella::gui
         drawPopups (pixels);
 
        #if STELLA_PROTECTED
-        // Not registered yet: the badge, bottom right, over everything.
+        // Not registered yet: the badge where the panel's Registration element is, over everything.
         if (badge.width > 0 && ! licence::isRegistered())
-            blitPixels (pixels, badge.pixels.data(), width - badge.width - 8, height - badge.height - 8, badge.width, badge.height);
+            blitPixels (pixels, badge.pixels.data(), licence::badgeX >= 0 ? licence::badgeX : width - badge.width - 8,
+                        licence::badgeY >= 0 ? licence::badgeY : height - badge.height - 8, badge.width, badge.height);
        #endif
     }
 }

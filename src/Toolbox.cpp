@@ -492,6 +492,27 @@ void Toolbox::drawIcon (juce::Graphics& g, juce::Rectangle<float> area, const ju
         return;
     }
 
+    if (icon == "registration")
+    {
+        // A padlock in the badge's amber.
+        const auto amber = juce::Colour (0xffffb020);
+        const auto body = juce::Rectangle<float> (s * 0.58f, s * 0.42f).withCentre (c.translated (0.0f, s * 0.14f));
+        const auto r = s * 0.17f, top = body.getY() - s * 0.06f;
+
+        juce::Path shackle;
+        shackle.startNewSubPath (c.x - r, body.getY());
+        shackle.lineTo (c.x - r, top);
+        shackle.addCentredArc (c.x, top, r, r, 0.0f, -juce::MathConstants<float>::halfPi, juce::MathConstants<float>::halfPi);
+        shackle.lineTo (c.x + r, body.getY());
+
+        g.setColour (amber);
+        g.strokePath (shackle, juce::PathStrokeType (juce::jmax (1.5f, s * 0.08f)));
+        g.fillRoundedRectangle (body, 2.0f);
+        g.setColour (juce::Colour (0xff141418));
+        g.fillEllipse (juce::Rectangle<float> (s * 0.1f, s * 0.1f).withCentre (body.getCentre()));
+        return;
+    }
+
     if (icon == "shape")
     {
         auto star = juce::Drawable::parseSVGPath ("M50,5 L61,39 L97,39 L68,61 L79,95 L50,74 L21,95 L32,61 L3,39 L39,39 Z");

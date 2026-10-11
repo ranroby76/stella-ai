@@ -142,6 +142,14 @@ public:
         frames (controls with the same look and size share one: their look's own frames, a
         switch's off and on). Meters, scopes, curves and XY dots are drawn live by the plugin
         itself. */
+    /** An element's size when it's added, at a point of the plugin window. */
+    static juce::Rectangle<int> defaultBounds (GuiWidget::Type type, int x, int y);
+
+    /** The registration badge: its words when none are given, and how it's drawn (the
+        exported plugin shows the same picture). */
+    static juce::String registrationText();
+    static void drawRegistration (juce::Graphics&, const GuiWidget&);
+
     struct Bake
     {
         juce::Image background;
@@ -155,6 +163,9 @@ public:
         std::vector<Strip> strips;
         std::vector<int> stripOf;                        // per widget: its strip, or -1
         std::vector<juce::Rectangle<int>> movingArea;    // per widget: where its moving part goes
+
+        juce::Image registration;                        // the registration badge, if the panel has one
+        juce::Rectangle<int> registrationArea;           // ...and where it goes
     };
 
     Bake bake();
@@ -212,7 +223,6 @@ private:
     static int snapped (float v)                       { return juce::roundToInt (v / (float) snapStep) * snapStep; }
     static bool isInteractive (const GuiWidget& w);
     static juce::String typeDisplayName (GuiWidget::Type type);
-    static juce::Rectangle<int> defaultBounds (GuiWidget::Type type, int x, int y);
     static juce::Colour standardColour (const GuiWidget& w);   // what it's drawn in with no colour of its own
     static const char* defaultStarPath();
 
