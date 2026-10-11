@@ -28,6 +28,11 @@
     server isn't answering", so the user is warned with the right message. Nothing here
     names the AI service behind the server.
 
+    Stella AI's requests go through Fanan's relay when the server names one (in its "hello"
+    answer): the relay makes the AI call with no time limit, so long building steps aren't
+    cut off; the server still checks and charges the credits. If the relay can't be reached,
+    the request goes to the server as before.
+
     A server that was asleep takes a while to wake, so the studio waits for its answer
     rather than giving up early; after a failure it tries again within a second or two, and
     a request that outlives its time is broken off. Every request is noted, with how long it
@@ -111,7 +116,7 @@ private:
     {
         Status status = Status::checking;
         int credits = -1;
-        juce::String code, email;
+        juce::String code, email, relay;
         bool linked = false;
         bool known = false;   // the server answered "hello"
     };
@@ -123,6 +128,8 @@ private:
     void scheduleNextCheck();
 
     Response post (const juce::String& function, const juce::var& body, int timeoutMs);
+    Response postTo (const juce::URL& address, const juce::var& body, int timeoutMs, const juce::String& what);
+    static bool isUsableRelay (const juce::String& address);
     Response fetch (const juce::URL& url, const juce::String& headers, int timeoutMs, bool isPost, const juce::String& what);
     bool canReachInternet();
     void cancelOverdue();
@@ -146,6 +153,7 @@ private:
     Status status = Status::checking;
     int credits = -1;
     juce::String computerCode, email, lastEmail;
+    juce::String relayUrl;   // where Stella AI's requests go (empty: straight to the server)
     bool linked = false;
 
     std::atomic<bool> checking { false };

@@ -22,6 +22,8 @@ namespace
     constexpr int accountTimeoutMs  = 20000;    // signing in and out
     constexpr int internetTimeoutMs = 5000;     // the internet test, only after a failure
     constexpr int chatTimeoutMs     = 320000;   // a building step can take minutes: Base44 allows 5, plus a margin
+    constexpr int relayTimeoutMs    = 660000;   // through the relay: it gives a step up to 10 minutes
+    constexpr int relayConnectMs    = 30000;    // a relay that can't be reached within this: the server answers instead
     constexpr int overdueMarginMs   = 5000;     // past its timeout plus this, a request is broken off
 
     // When to check again.
@@ -316,6 +318,7 @@ void FananServer::runCheck()
             snapshot.code = response.body.getProperty ("account", {}).toString();
             snapshot.linked = (bool) response.body.getProperty ("linked", false);
             snapshot.email = response.body.getProperty ("email", {}).toString();
+            snapshot.relay = response.body.getProperty ("relay", {}).toString().trim();
         }
         else if (response.connected)
         {
@@ -350,6 +353,7 @@ void FananServer::setState (const Snapshot& snapshot)
         if (snapshot.known)
         {
             credits = snapshot.credits;
+            relayUrl = isUsableRelay (snapshot.relay) ? snapshot.relay : juce::String();
             linked = snapshot.linked;
             email = snapshot.linked ? snapshot.email : juce::String();
 
@@ -512,7 +516,30 @@ void FananServer::chat (const juce::var& request, Done done)
         if (! stillAlive->load())
             return;
 
-        const auto response = post ("stellaChat", body, chatTimeoutMs);
+        juce::String relay;
+
+        {
+            const juce::ScopedLock lock (stateLock);
+            relay = relayUrl;
+        }
+
+        // Through the relay when there is one; if it can't be reached at all, the server
+        // answers as before (nothing was sent, so nothing is done twice).
+        Response response;
+
+        if (relay.isNotEmpty())
+        {
+            const auto started = juce::Time::getMillisecondCounter();
+            response = postTo (juce::URL (relay), body, relayTimeoutMs, "stellaChat (relay)");
+
+            if (! response.connected && juce::Time::getMillisecondCounter() - started < (juce::uint32) relayConnectMs)
+                response = post ("stellaChat", body, chatTimeoutMs);
+        }
+        else
+        {
+            response = post ("stellaChat", body, chatTimeoutMs);
+        }
+
         const auto& answer = response.body;
 
         auto result = juce::Result::ok();
@@ -555,16 +582,30 @@ void FananServer::chat (const juce::var& request, Done done)
 //==============================================================================
 FananServer::Response FananServer::post (const juce::String& function, const juce::var& body, int timeoutMs)
 {
-    const auto url = juce::URL (settings.serverUrl + "/api/apps/" + settings.appId + "/functions/" + function)
-                         .withPOSTData (juce::JSON::toString (body, true));
+    const auto action = body.getProperty ("action", {}).toString();
 
+    return postTo (juce::URL (settings.serverUrl + "/api/apps/" + settings.appId + "/functions/" + function),
+                   body, timeoutMs, function + (action.isNotEmpty() ? " " + action : juce::String()));
+}
+
+FananServer::Response FananServer::postTo (const juce::URL& address, const juce::var& body, int timeoutMs, const juce::String& what)
+{
     juce::String headers;
     headers << "X-App-Id: " << settings.appId << "\r\n"
             << "Accept: application/json\r\n"
             << "Content-Type: application/json\r\n";
 
-    const auto action = body.getProperty ("action", {}).toString();
-    return fetch (url, headers, timeoutMs, true, function + (action.isNotEmpty() ? " " + action : juce::String()));
+    return fetch (address.withPOSTData (juce::JSON::toString (body, true)), headers, timeoutMs, true, what);
+}
+
+bool FananServer::isUsableRelay (const juce::String& address)
+{
+    // Only over HTTPS (or this computer, for testing).
+    const juce::URL url (address);
+    const auto host = url.getDomain().toLowerCase();
+
+    return address.startsWithIgnoreCase ("https://")
+        || (address.startsWithIgnoreCase ("http://") && (host == "127.0.0.1" || host == "localhost"));
 }
 
 FananServer::Response FananServer::fetch (const juce::URL& url, const juce::String& headers, int timeoutMs, bool isPost,
