@@ -334,6 +334,8 @@ void StellaAi::beginTurn (const juce::var& message, const juce::String& shown, c
 
     mode = startMode;
     lastStop.clear();
+    cutsInARow = 0;
+    cutThisAnswer = false;
     roundsLeft = maxRounds;
     stopRequested = false;
     turnCredits = 0;
@@ -377,25 +379,51 @@ void StellaAi::onAnswer (const juce::Result& result, const juce::var& answer)
     const auto content = answer.getProperty ("content", {});
     const auto reply = answer.getProperty ("reply", {}).toString().trim();
     const auto stopReason = answer.getProperty ("stop", {}).toString();
+    const bool cut = stopReason == "cut";
     lastStop = stopReason;
     answerUsed = juce::jmax (0, (int) answer.getProperty ("used", 0));
     proposedThisAnswer = false;
 
-    messages.add (makeMessage ("assistant", content.isArray() && content.getArray()->size() > 0 ? content
-                                                                                                : juce::var (reply.isNotEmpty() ? reply : juce::String ("(no reply)"))));
+    if (! cut)
+        cutsInARow = 0;
 
-    if (reply.isNotEmpty())
-        addEntry (Entry::Kind::ai, reply);
+    // Its tool calls. An answer that ran out of room still has the calls it finished (the one
+    // cut half-way is left out): they run like any others, and it carries on from there.
+    juce::Array<juce::var> calls;
 
-    if (stopReason == "tools" && content.isArray())
+    if (const auto* blocks = content.getArray())
+        for (const auto& block : *blocks)
+            if (block.getProperty ("type", {}).toString() == "tool_use")
+                calls.add (block);
+
+    const bool runsTools = (stopReason == "tools" || cut) && ! calls.isEmpty();
+
+    // A call kept in the conversation must get its result, or the next request is refused:
+    // calls that won't run are left out of it.
+    auto kept = content;
+
+    if (! runsTools && content.isArray())
     {
-        pendingCalls.clear();
-        toolResults.clear();
+        juce::Array<juce::var> blocks;
 
         for (const auto& block : *content.getArray())
-            if (block.getProperty ("type", {}).toString() == "tool_use")
-                pendingCalls.add (block);
+            if (block.getProperty ("type", {}).toString() != "tool_use")
+                blocks.add (block);
 
+        kept = blocks;
+    }
+
+    messages.add (makeMessage ("assistant", kept.isArray() && kept.getArray()->size() > 0
+                                                ? kept : juce::var (reply.isNotEmpty() ? reply : juce::String (cut ? "(cut off)" : "(no reply)"))));
+
+    if (reply.isNotEmpty() && ! cut)   // words cut off half-way aren't shown
+        addEntry (Entry::Kind::ai, reply);
+
+    if (runsTools)
+    {
+        pendingCalls = calls;
+        toolResults.clear();
+        cutThisAnswer = cut;
         layoutChangedThisStep = false;
         notify();
         runNextTool();
@@ -404,8 +432,18 @@ void StellaAi::onAnswer (const juce::Result& result, const juce::var& answer)
 
     chargeAnswer();
 
-    if (stopReason == "cut")
-        addEntry (Entry::Kind::notice, "That answer was too long and got cut off. Ask for less at once, or say \"continue\".");
+    // Cut off before any call: it tries again, smaller, a couple of times.
+    if (cut && ++cutsInARow <= maxCutRetries && --roundsLeft > 0 && ! stopRequested)
+    {
+        addEntry (Entry::Kind::activity, juce::String::fromUTF8 ("That was too much at once: carrying on in smaller pieces\xe2\x80\xa6"));
+        messages.add (makeMessage ("user", cutNote (false)));
+        notify();
+        sendRound();
+        return;
+    }
+
+    if (cut)
+        addEntry (Entry::Kind::notice, "Stella AI's answers keep running out of room. Ask for less at once, or say \"continue\".");
     else if (stopReason == "refused")
         addEntry (Entry::Kind::notice, "Stella AI declined that request.");
     else if (reply.isEmpty())
@@ -498,7 +536,14 @@ void StellaAi::runNextTool()
 
 void StellaAi::answerDone()
 {
-    // Every call answered: the results go back as the next turn.
+    // Every call answered: the results go back as the next turn (after an answer that ran
+    // out of room, with a word to carry on in smaller pieces).
+    const bool wasCut = cutThisAnswer;
+    cutThisAnswer = false;
+
+    if (wasCut)
+        toolResults.add (blockOf ({ { "type", "text" }, { "text", cutNote (true) } }));
+
     messages.add (makeMessage ("user", toolResults));
     toolResults.clear();
     chargeAnswer();
@@ -536,6 +581,19 @@ void StellaAi::answerDone()
             finish();
             return;
         }
+    }
+
+    if (wasCut)
+    {
+        if (++cutsInARow > maxCutRetries)
+        {
+            messages.add (makeMessage ("assistant", juce::var ("(I stopped: my answers kept running out of room.)")));
+            addEntry (Entry::Kind::notice, "Stella AI's answers keep running out of room. Ask for less at once, or say \"continue\".");
+            finish();
+            return;
+        }
+
+        addEntry (Entry::Kind::activity, juce::String::fromUTF8 ("That was too much at once: carrying on in smaller pieces\xe2\x80\xa6"));
     }
 
     if (--roundsLeft <= 0)
@@ -1028,16 +1086,58 @@ void StellaAi::clearPlan()
     planEntry = noEntry;   // its card stays as it last was
 }
 
+juce::String StellaAi::cutNote (bool afterCalls)
+{
+    return juce::String ("(Your last answer ran out of room and was cut off")
+         + (afterCalls ? ": the calls above ran, anything after them wasn't done." : ", so nothing in it was done.")
+         + " Carry on with what's left in smaller pieces: one file, or at most three presets, per answer.)";
+}
+
 //==============================================================================
 juce::Array<juce::var> StellaAi::compacted() const
 {
+    // A tool call must be followed by its result, or the AI service refuses the whole
+    // request: a call left without one (an answer cut off, say) goes out as words only.
+    juce::Array<juce::var> list (messages);
+
+    for (int i = 0; i < list.size(); ++i)
+    {
+        const auto& message = list.getReference (i);
+        const auto* blocks = message.getProperty ("content", {}).getArray();
+
+        if (message.getProperty ("role", {}).toString() != "assistant" || blocks == nullptr)
+            continue;
+
+        juce::StringArray answered;
+
+        if (i + 1 < list.size())
+            if (const auto* next = list.getReference (i + 1).getProperty ("content", {}).getArray())
+                for (const auto& block : *next)
+                    if (block.getProperty ("type", {}).toString() == "tool_result")
+                        answered.add (block.getProperty ("tool_use_id", {}).toString());
+
+        juce::Array<juce::var> keptBlocks;
+        bool dropped = false;
+
+        for (const auto& block : *blocks)
+        {
+            if (block.getProperty ("type", {}).toString() == "tool_use" && ! answered.contains (block.getProperty ("id", {}).toString()))
+                dropped = true;
+            else
+                keptBlocks.add (block);
+        }
+
+        if (dropped)
+            list.set (i, makeMessage ("assistant", keptBlocks.isEmpty() ? juce::var ("(cut off)") : juce::var (keptBlocks)));
+    }
+
     // Old steps are sent short: a file written earlier is in the project now (the AI can
     // read it again), and long old tool results are cut. That keeps every request small.
     int lastAssistant = -1, lastUser = -1;
 
-    for (int i = messages.size(); --i >= 0;)
+    for (int i = list.size(); --i >= 0;)
     {
-        const auto role = messages.getReference (i).getProperty ("role", {}).toString();
+        const auto role = list.getReference (i).getProperty ("role", {}).toString();
 
         if (role == "assistant" && lastAssistant < 0) lastAssistant = i;
         if (role == "user" && lastUser < 0)           lastUser = i;
@@ -1045,9 +1145,9 @@ juce::Array<juce::var> StellaAi::compacted() const
 
     juce::Array<juce::var> result;
 
-    for (int i = 0; i < messages.size(); ++i)
+    for (int i = 0; i < list.size(); ++i)
     {
-        const auto& message = messages.getReference (i);
+        const auto& message = list.getReference (i);
         const auto content = message.getProperty ("content", {});
 
         // The request being worked on keeps its attachments whole for every step.

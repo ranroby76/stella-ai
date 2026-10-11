@@ -89,6 +89,7 @@ public:
     static constexpr int maxPlanSteps = 12;   // steps in one plan: a bigger request goes in phases
     static constexpr int maxLaterPhases = 8;
     static constexpr int maxHistory = 80;     // messages kept in the conversation
+    static constexpr int maxCutRetries = 2;   // answers in a row that may run out of room before it stops
 
     /** A step's estimate, and how far over it the step may run before it pauses. */
     static constexpr double estimateLow = 0.7, estimateHigh = 1.4, overrunFactor = 1.5;
@@ -115,6 +116,7 @@ private:
     void onAnswer (const juce::Result& result, const juce::var& answer);
     void runNextTool();
     void answerDone();   // every tool call of the answer has its result
+    static juce::String cutNote (bool afterCalls);   // to carry on in smaller pieces after an answer ran out of room
     void finish();
     juce::Array<juce::var> compacted() const;
     static juce::Result attach (const juce::File& file, juce::Array<juce::var>& blocks);
@@ -152,6 +154,8 @@ private:
     bool layoutChangedThisStep = false;   // set_layout or edit_layout ran among this answer's calls
     juce::String lastStop;                // how the last answer ended: "tools", "done", "cut"...
     int answerUsed = 0;                   // the credits the answer being handled cost
+    bool cutThisAnswer = false;           // the answer being handled ran out of room
+    int cutsInARow = 0;                   // answers in a row that did
     int turnCredits = 0;                  // the credits this request has cost so far
 
     juce::Array<juce::var> pendingCalls, toolResults;   // the current answer's tool calls
