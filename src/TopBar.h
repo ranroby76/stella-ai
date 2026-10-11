@@ -49,6 +49,8 @@ public:
     std::function<void()> onSave;     // what's waiting is written at once
     std::function<void()> onSaveAs;   // the plugin copied into a new folder, under a new name
     std::function<void()> onRevealProject;
+    std::function<void()> onToggleFinishSound;   // the "Sound when Stella AI finishes" item
+    std::function<bool()> isFinishSoundOn;
     std::function<void()> onCloseProject;
     std::function<void (const juce::File& projectFile)> onOpenRecent;
 

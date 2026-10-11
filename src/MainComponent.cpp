@@ -112,6 +112,14 @@ MainComponent::MainComponent (Settings& s)
     topBar.onOpenRecent = [this] (const juce::File& file) { openProjectFile (file); };
     topBar.onRevealProject = [this] { if (project.isOpen()) project.getProjectFile().revealToUser(); };
     topBar.onCloseProject = [this] { flushLayoutSave(); project.close(); };
+    topBar.isFinishSoundOn = [this] { return settings.getFinishSound(); };
+    topBar.onToggleFinishSound = [this]
+    {
+        settings.setFinishSound (! settings.getFinishSound());
+
+        if (settings.getFinishSound())
+            playFinishSound();   // so it's heard what it sounds like
+    };
 
     topBar.recentProjects = [this] { return settings.getRecentProjects(); };
 
@@ -173,6 +181,9 @@ MainComponent::MainComponent (Settings& s)
     };
     ai.onTurnFinished = [this] (const juce::String& request)
     {
+        if (settings.getFinishSound())
+            playFinishSound();
+
         recordHistory ("Stella AI: " + (request.length() > 40 ? request.substring (0, 40) + juce::String::fromUTF8 ("\xe2\x80\xa6") : request));
 
         // A request from an Edit UI menu: its answer shows there too.
@@ -1166,6 +1177,14 @@ void MainComponent::newProject()
             nameEditor->selectAll();
         }
     });
+}
+
+void MainComponent::playFinishSound()
+{
+    // Through the studio's own output (over the plugin, if it plays); with no audio device
+    // running, the system's alert sound instead.
+    if (! engine.playChime())
+        juce::LookAndFeel::getDefaultLookAndFeel().playAlertSound();
 }
 
 void MainComponent::saveProject()

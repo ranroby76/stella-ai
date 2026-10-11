@@ -8,6 +8,7 @@ namespace
     const juce::Identifier vendorKey         { "vendor" };
     const juce::Identifier recentKey         { "recentProjects" };
     const juce::Identifier windowKey         { "window" };
+    const juce::Identifier finishSoundKey    { "finishSound" };
 }
 
 //==============================================================================
@@ -89,6 +90,19 @@ juce::String Settings::getWindowState() const
 void Settings::setWindowState (const juce::String& state)
 {
     setString (windowKey, state);
+}
+
+bool Settings::getFinishSound() const
+{
+    return (bool) data.getProperty (finishSoundKey, true);
+}
+
+void Settings::setFinishSound (bool shouldPlay)
+{
+    if (auto* object = data.getDynamicObject())
+        object->setProperty (finishSoundKey, shouldPlay);
+
+    save();
 }
 
 //==============================================================================

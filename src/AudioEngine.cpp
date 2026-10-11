@@ -283,6 +283,56 @@ void AudioEngine::handleIncomingMidiMessage (juce::MidiInput*, const juce::MidiM
     midiCollector.addMessageToQueue (message);
 }
 
+bool AudioEngine::playChime()
+{
+    auto* device = deviceManager.getCurrentAudioDevice();
+
+    if (device == nullptr || ! device->isPlaying())
+        return false;
+
+    chimeRequested.store (true);
+    return true;
+}
+
+void AudioEngine::Chime::render (float* left, float* right, int numSamples) noexcept
+{
+    // C6 then G6, 140 ms apart, each a sine with a quiet octave, a 5 ms rise and a
+    // quarter-second fade: gentle, and clear over music.
+    struct Note { double frequency, startSeconds; };
+    static constexpr Note notes[] { { 1046.5, 0.0 }, { 1568.0, 0.14 } };
+    constexpr double lengthSeconds = 1.2, attack = 0.005, decay = 0.25;
+    constexpr float level = 0.16f;
+
+    const auto total = (int) (lengthSeconds * sampleRate);
+
+    for (int i = 0; i < numSamples && position < total; ++i, ++position)
+    {
+        const auto t = (double) position / sampleRate;
+        double sample = 0.0;
+
+        for (const auto& note : notes)
+        {
+            const auto local = t - note.startSeconds;
+
+            if (local < 0.0)
+                continue;
+
+            const auto envelope = juce::jmin (1.0, local / attack) * std::exp (-local / decay);
+            const auto phase = juce::MathConstants<double>::twoPi * note.frequency * local;
+            sample += envelope * (std::sin (phase) + 0.3 * std::sin (2.0 * phase));
+        }
+
+        const auto value = (float) sample * level;
+        left[i] += value;
+
+        if (right != nullptr)
+            right[i] += value;
+    }
+
+    if (position >= total)
+        active = false;
+}
+
 void AudioEngine::audioDeviceAboutToStart (juce::AudioIODevice* device)
 {
     const auto rate = device != nullptr ? device->getCurrentSampleRate() : 48000.0;
@@ -366,6 +416,13 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* inputCha
 
     if (! pluginPlayed && left != nullptr && testToneOn.load (std::memory_order_relaxed))
         testTone.render (left, right, numSamples, midiBuffer);
+
+    // Stella AI has finished: the chime goes over whatever is playing.
+    if (chimeRequested.exchange (false))
+        chime.start (currentRate.load());
+
+    if (chime.active && left != nullptr)
+        chime.render (left, right, numSamples);
 
     for (int channel = 0; channel < juce::jmin (2, numOutputChannels); ++channel)
     {

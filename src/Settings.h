@@ -7,7 +7,8 @@
 //==============================================================================
 /**
     The studio's own settings: recent projects, the projects folder, the company
-    name new plugins get, and the window's position.
+    name new plugins get, the window's position, and whether a sound says Stella AI
+    has finished.
 
     Kept in one JSON file next to the executable, so a development build writes
     nothing outside its build folder.
@@ -32,6 +33,10 @@ public:
 
     juce::String getWindowState() const;
     void setWindowState (const juce::String& state);
+
+    /** A short sound when Stella AI finishes a request (on unless turned off). */
+    bool getFinishSound() const;
+    void setFinishSound (bool shouldPlay);
 
     static juce::File getFile();
     static juce::File getDefaultProjectsFolder();

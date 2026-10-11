@@ -17,6 +17,7 @@ namespace
         openId = 6,
         saveId = 7,
         saveAsId = 8,
+        finishSoundId = 9,
         recentBaseId = 100
     };
 
@@ -302,6 +303,8 @@ void TopBar::showOptionsMenu()
     menu.addSeparator();
     menu.addItem (revealId, "Show project folder", hasProject);
     menu.addItem (closeId, "Close project", hasProject);
+    menu.addSeparator();
+    menu.addItem (finishSoundId, "Sound when Stella AI finishes", true, isFinishSoundOn != nullptr && isFinishSoundOn());
 
     optionsMenu.setOpen (true);
 
@@ -325,6 +328,8 @@ void TopBar::showOptionsMenu()
                                 safeThis->onRevealProject();
                             else if (result == closeId && safeThis->onCloseProject != nullptr)
                                 safeThis->onCloseProject();
+                            else if (result == finishSoundId && safeThis->onToggleFinishSound != nullptr)
+                                safeThis->onToggleFinishSound();
                             else if (result >= recentBaseId && result - recentBaseId < recent.size() && safeThis->onOpenRecent != nullptr)
                                 safeThis->onOpenRecent (juce::File (recent[result - recentBaseId]));
                         });

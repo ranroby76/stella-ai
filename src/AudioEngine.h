@@ -76,6 +76,10 @@ public:
     /** e.g. "ASIO · Focusrite USB ASIO · 48 kHz · 128 samples", or "No audio device". */
     juce::String describeDevice() const;
 
+    /** A short two-note chime through the output, over whatever is playing (Stella AI has
+        finished). False if no audio device is running, so nothing can be heard. */
+    bool playChime();
+
     void setTestToneEnabled (bool shouldBeOn) noexcept    { testToneOn.store (shouldBeOn); }
     bool isTestToneEnabled() const noexcept               { return testToneOn.load(); }
 
@@ -118,6 +122,20 @@ private:
 
     TestTone testTone;
     std::atomic<bool> testToneOn { true };
+
+    /** The chime, on the audio thread: two soft bell notes, a fifth apart. */
+    struct Chime
+    {
+        void start (double rate) noexcept    { sampleRate = rate; position = 0; active = true; }
+        void render (float* left, float* right, int numSamples) noexcept;
+
+        double sampleRate = 48000.0;
+        int position = 0;
+        bool active = false;
+    };
+
+    Chime chime;
+    std::atomic<bool> chimeRequested { false };
 
     juce::SpinLock pluginLock;
     std::unique_ptr<WasmPlugin> plugin;
