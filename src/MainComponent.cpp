@@ -221,28 +221,6 @@ MainComponent::MainComponent (Settings& s)
 
     setWantsKeyboardFocus (true);
 
-    // The schematic: bypass, probe, positions, and instructions for one block.
-    auto& schematic = workspace.getSchematic();
-    schematic.onBypass = [this] (const juce::String& id, bool off) { preview.setBypass (id, off); };
-    schematic.onProbe = [this] (const juce::String& id, int port) { preview.setProbe (id, port); };
-    schematic.readProbe = [this] (float* destination, int numSamples) { preview.readProbe (destination, numSamples); };
-    schematic.onAskAi = [this] (const juce::String& id, const juce::String& type, const juce::String& instruction)
-    {
-        ai.send ("In the block \"" + id + "\" (" + type + ", modules/" + type + ".cpp): " + instruction);
-        workspace.showTab (Workspace::aiTab);   // to see Stella AI answer
-    };
-    schematic.onPositionsChanged = [this]
-    {
-        if (! project.isOpen())
-            return;
-
-        auto* object = new juce::DynamicObject();
-        const juce::var file (object);
-        object->setProperty ("positions", workspace.getSchematic().getPositions());
-        project.getGuiFolder().getChildFile ("schematic.json").replaceWithText (juce::JSON::toString (file));
-        recordHistory ("Moved blocks");
-    };
-
     server.onStateChanged = [this] { connectionChanged(); };
     ai.onChanged = [this]
     {
@@ -266,8 +244,8 @@ MainComponent::MainComponent (Settings& s)
     chat.onSignIn = [this] (const juce::String& email) { signIn (false, email); };
     chat.onSignOut = [this] { signOut(); };
 
-    // The four tabs, picked in the top bar: Build with AI (the chat), Edit UI, Schematic,
-    // Knob Studio. The workspace shows one at a time; the top bar follows it.
+    // The three tabs, picked in the top bar: Build with AI (the chat), Edit UI, Knob Studio.
+    // The workspace shows one at a time; the top bar follows it.
     workspace.setAiPage (chat);
     topBar.onTabChosen = [this] (int index) { workspace.showTab ((Workspace::TabIndex) index); };
     workspace.onTabChanged = [this] (int index)
@@ -350,8 +328,6 @@ void MainComponent::projectChanged()
         {
             builtProjectId = info.uuid;
 
-            workspace.getSchematic().setPositions (juce::JSON::parse (project.getGuiFolder().getChildFile ("schematic.json"))
-                                                       .getProperty ("positions", {}));
             workspace.setGuiFolder (project.getGuiFolder());
             loadLayout (false);
 
@@ -363,7 +339,6 @@ void MainComponent::projectChanged()
             abSlot = 0;
             workspace.setAbSlot (0);
             pushPresets();
-            refreshSchematic();
             buildPlugin();
         }
     }
@@ -374,7 +349,6 @@ void MainComponent::projectChanged()
 
         builtProjectId.clear();
         preview.unload();
-        refreshSchematic();
         workspace.setGuiFolder ({});
         workspace.setLayout ({});
 
@@ -441,8 +415,6 @@ void MainComponent::previewChanged()
 
     if (logWindow != nullptr)
         static_cast<LogWindow*> (logWindow.get())->setLog (preview.getLog());
-
-    refreshSchematic();
 }
 
 void MainComponent::loadLayout (bool makeOneIfMissing)
@@ -641,9 +613,6 @@ void MainComponent::undoOrRedo (bool redo)
     if (changed.layout)
         loadLayout (false);
 
-    if (changed.schematic)
-        workspace.getSchematic().setPositions (juce::JSON::parse (project.getGuiFolder().getChildFile ("schematic.json")).getProperty ("positions", {}));
-
     if (changed.presets)
     {
         presets.load (project.getFolder());
@@ -652,8 +621,6 @@ void MainComponent::undoOrRedo (bool redo)
 
     if (changed.code)
         buildPlugin();
-    else
-        refreshSchematic();
 }
 
 bool MainComponent::keyPressed (const juce::KeyPress& key)
@@ -844,74 +811,6 @@ void MainComponent::autoLayout()
                     safeThis->autoLayoutDialog = nullptr;
             });
         }), false);
-}
-
-void MainComponent::refreshSchematic()
-{
-    auto& schematic = workspace.getSchematic();
-
-    if (! project.isOpen())
-    {
-        schematic.setGraph (false, false, {}, {});
-        return;
-    }
-
-    // Blocks and wires from graph.json; ports from the plugin as built. If it hasn't built,
-    // the ports are worked out from the wires.
-    const auto graph = juce::JSON::parse (project.getFolder().getChildFile (WasmCompiler::graphFileName));
-
-    juce::Array<SchematicView::Block> blocks;
-    juce::Array<SchematicView::Wire> wires;
-
-    if (const auto* list = graph.getProperty ("wires", {}).getArray())
-    {
-        for (const auto& item : *list)
-        {
-            const auto from = item.getProperty ("from", {}).toString();
-            const auto to = item.getProperty ("to", {}).toString();
-
-            if (from.containsChar ('.') && to.containsChar ('.'))
-                wires.add ({ from.upToFirstOccurrenceOf (".", false, false), from.fromFirstOccurrenceOf (".", false, false),
-                             to.upToFirstOccurrenceOf (".", false, false), to.fromFirstOccurrenceOf (".", false, false) });
-        }
-    }
-
-    if (const auto* list = graph.getProperty ("modules", {}).getArray())
-    {
-        for (const auto& item : *list)
-        {
-            SchematicView::Block block;
-            block.id = item.getProperty ("id", {}).toString();
-            block.type = item.getProperty ("type", {}).toString();
-            block.bypassed = preview.isBypassed (block.id);
-
-            bool known = false;
-
-            for (const auto& m : preview.getModules())
-            {
-                if (m.id == block.id && m.type == block.type)
-                {
-                    block.name = m.name;
-                    block.inputs = m.inputs;
-                    block.outputs = m.outputs;
-                    known = true;
-                }
-            }
-
-            if (! known)
-            {
-                for (const auto& w : wires)
-                {
-                    if (w.toModule == block.id)   block.inputs.addIfNotAlreadyThere (w.toPort);
-                    if (w.fromModule == block.id) block.outputs.addIfNotAlreadyThere (w.fromPort);
-                }
-            }
-
-            blocks.add (block);
-        }
-    }
-
-    schematic.setGraph (true, project.getInfo().kind == PluginKind::effect, blocks, wires);
 }
 
 void MainComponent::showBuildLog()

@@ -23,7 +23,7 @@
     The studio window's content:
 
         top bar (Options menu, device details, the four tabs, audio load, Audio / MIDI)
-        the open tab (Build with AI / Edit UI / Schematic / Knob Studio)
+        the open tab (Build with AI / Edit UI / Knob Studio)
 
     Owns the audio engine, the link to Fanan's server (Stella AI and credits) and the
     open project.
@@ -51,7 +51,6 @@ private:
     void projectChanged();
     void connectionChanged();
     void previewChanged();
-    void refreshSchematic();
     void loadLayout (bool makeOneIfMissing);
     void saveLayout();
     void saveLayoutSoon();

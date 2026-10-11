@@ -22,8 +22,8 @@ public:
     /** What an undo or redo changed, so only that gets rebuilt. */
     struct Changed
     {
-        bool code = false, layout = false, schematic = false, presets = false;
-        bool any() const noexcept    { return code || layout || schematic || presets; }
+        bool code = false, layout = false, presets = false;
+        bool any() const noexcept    { return code || layout || presets; }
     };
 
     /** A project was opened (or closed: folder empty). Starts a fresh history. */

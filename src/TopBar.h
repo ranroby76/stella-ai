@@ -12,7 +12,7 @@
 
         left    the Options menu, and the audio device's details in a pill (a click opens
                 the audio and MIDI settings)
-        middle  the studio's four tabs: Build with AI, Edit UI, Schematic, Knob Studio
+        middle  the studio's three tabs: Build with AI, Edit UI, Knob Studio
         right   the output meter with the audio load, and the Fanan logo
 
     The open project's name is in the window's title bar, as in Windows apps.
@@ -26,11 +26,11 @@ public:
 
     void setProjectName (const juce::String& name);   // empty: no project open
 
-    /** Which of the four tabs is showing, in the order of tabNames. */
+    /** Which of the three tabs is showing, in the order of tabNames. */
     void setCurrentTab (int index);
 
-    static constexpr int numTabs = 4;
-    static constexpr const char* tabNames[numTabs] { "Build with AI", "Edit UI", "Schematic", "Knob Studio" };
+    static constexpr int numTabs = 3;
+    static constexpr const char* tabNames[numTabs] { "Build with AI", "Edit UI", "Knob Studio" };
 
     std::function<void (int index)> onTabChosen;
 

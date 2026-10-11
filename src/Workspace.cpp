@@ -396,7 +396,6 @@ Workspace::Workspace()
 
     // The tabs are picked in the top bar; one page shows at a time.
     addChildComponent (pluginView);
-    addChildComponent (schematicView);
     addChildComponent (studio);
     showPages();
 }
@@ -427,9 +426,9 @@ void Workspace::showTab (TabIndex index)
 
 void Workspace::showPages()
 {
-    juce::Component* pages[] { aiPage, &pluginView, &schematicView, &studio };
+    juce::Component* pages[] { aiPage, &pluginView, &studio };
 
-    for (int i = 0; i < 4; ++i)
+    for (int i = 0; i < 3; ++i)
         if (pages[i] != nullptr)
             pages[i]->setVisible (i == (int) currentTab);
 }
@@ -472,8 +471,7 @@ void Workspace::setSources (const juce::StringArray& signals, const juce::String
 
 void Workspace::resized()
 {
-    for (auto* page : { aiPage, static_cast<juce::Component*> (&pluginView), static_cast<juce::Component*> (&schematicView),
-                        static_cast<juce::Component*> (&studio) })
+    for (auto* page : { aiPage, static_cast<juce::Component*> (&pluginView), static_cast<juce::Component*> (&studio) })
         if (page != nullptr)
             page->setBounds (getLocalBounds());
 }

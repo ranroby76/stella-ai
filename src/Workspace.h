@@ -7,21 +7,19 @@
 #include "KnobStudio.h"
 #include "Looks.h"
 #include "PluginCanvas.h"
-#include "SchematicView.h"
 #include "Toolbox.h"
 
 #include <functional>
 
 //==============================================================================
 /**
-    The window below the top bar, in four tabs (picked in the top bar):
+    The window below the top bar, in three tabs (picked in the top bar):
 
         Build with AI  the conversation with Stella AI (the main window's chat panel)
         Edit UI        the plugin, playing live, on a grid you zoom and move around, in two
                        tabs of its own: Edit, where its GUI is reshaped (with the primitives
                        toolbox on the left), and Play, where the GUI is locked and plays like
                        the finished plugin. Empty (just the grid) until a project is open
-        Schematic      its DSP blocks and wires; click a block to instruct the AI
         Knob Studio    KnobMaker's layer builder, for the looks of its knobs, sliders and
                        switches (double-click one in Edit UI to open its look)
 */
@@ -32,7 +30,6 @@ public:
     {
         aiTab = 0,
         pluginTab,      // Edit UI
-        schematicTab,
         studioTab
     };
 
@@ -79,8 +76,6 @@ public:
 
     /** What meters, lamps and scopes can watch (for the design panel's lists). */
     void setSources (const juce::StringArray& signals, const juce::StringArray& displays);
-
-    SchematicView& getSchematic() noexcept        { return schematicView; }
 
     /** For Export: the GUI baked into images. */
     PluginCanvas::Bake bakeGui()                  { return pluginView.canvas.bake(); }
@@ -187,7 +182,6 @@ private:
 
     Looks looks;   // before the canvas and the studio, which both use it
     PluginView pluginView;
-    SchematicView schematicView;
     KnobStudio studio { looks };
     bool openingStudioForControl = false;
     juce::Component* aiPage = nullptr;

@@ -129,8 +129,6 @@ target_sources(StellaAIStudio PRIVATE
     src/History.cpp
     src/PresetBank.h
     src/PresetBank.cpp
-    src/SchematicView.h
-    src/SchematicView.cpp
     src/GuiLayout.h
     src/GuiLayout.cpp
     src/stella_keys.h
